@@ -101,7 +101,9 @@ ipcMain.handle('config:set', async (event, updates) => {
 
 // IPC: Add a harness directory
 ipcMain.handle('harness:add', async (event, dirPath) => {
-  const normalized = path.normalize(dirPath)
+  // path.resolve() collapses trailing separators, '.', '..' and relative
+  // segments so equivalent Windows paths dedupe correctly.
+  const normalized = path.resolve(dirPath)
   if (!config.harnessDirectories.includes(normalized)) {
     config.harnessDirectories.push(normalized)
     saveConfig()
@@ -179,9 +181,15 @@ function extractTextFromJsonValue(obj) {
   return parts.join('\n')
 }
 
+function readTextFile(filePath) {
+  // Read as UTF-8 and strip a leading BOM so JSON.parse and previews work
+  // on files saved with a byte-order mark (common on Windows).
+  return fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '')
+}
+
 function extractTextFromJsonFile(filePath) {
   try {
-    const content = fs.readFileSync(filePath, 'utf8')
+    const content = readTextFile(filePath)
     try {
       const obj = JSON.parse(content)
       return extractTextFromJsonValue(obj)
@@ -288,12 +296,12 @@ function collectSessionFiles(dirPath) {
 function getSessionPreview(filePath, ext) {
   try {
     if (ext === '.jsonl') {
-      const content = fs.readFileSync(filePath, 'utf8')
+      const content = readTextFile(filePath)
       const firstLine = content.split('\n')[0]
       return firstLine ? firstLine.substring(0, 120) : path.basename(filePath)
     }
     if (ext === '.json') {
-      const content = fs.readFileSync(filePath, 'utf8')
+      const content = readTextFile(filePath)
       try {
         const obj = JSON.parse(content)
         return (obj.title || obj.label || obj.session_id || path.basename(filePath)).toString().substring(0, 120)
@@ -304,7 +312,7 @@ function getSessionPreview(filePath, ext) {
     if (ext === '.db' || ext === '.sqlite') {
       return `SQLite database: ${path.basename(filePath)}`
     }
-    const content = fs.readFileSync(filePath, 'utf8')
+    const content = readTextFile(filePath)
     const firstLine = content.split('\n')[0].trim()
     return firstLine || content.substring(0, 100)
   } catch (e) {
