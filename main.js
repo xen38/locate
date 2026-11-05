@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron')
+const { Worker } = require('worker_threads')
 const path = require('path')
 const fs = require('fs')
 const Database = require('better-sqlite3')
@@ -449,61 +450,23 @@ ipcMain.handle('harness:autodetect', async () => {
 })
 
 // IPC: Search across all sessions (titles and contents)
+// Runs in a Worker thread so the main process (and UI) stays responsive while
+// scanning potentially thousands of session files. Files are read in chunks for
+// large plain-text sessions to avoid loading whole files into memory.
 ipcMain.handle('session:search', async (event, query, options = {}) => {
   const batchSize = options.batchSize || config.batchSize || 10
-  const results = []
-  const queryLower = query.toLowerCase()
-
-  for (const dir of config.harnessDirectories) {
-    try {
-      const filePaths = collectSessionFiles(dir)
-
-      // Process files in batches of batchSize
-      for (let i = 0; i < filePaths.length; i += batchSize) {
-        const batch = filePaths.slice(i, i + batchSize)
-        const batchPromises = batch.map(async (filePath) => {
-          try {
-            const content = fs.readFileSync(filePath, 'utf8')
-            const ext = path.extname(filePath).toLowerCase()
-            const label = path.basename(filePath, ext)
-            const labelMatch = label.toLowerCase().includes(queryLower)
-            const contentMatch = content.toLowerCase().includes(queryLower)
-
-            if (!labelMatch && !contentMatch) return null
-
-            // Find matching context in content
-            let context = ''
-            if (contentMatch) {
-              const idx = content.toLowerCase().indexOf(queryLower)
-              const start = Math.max(0, idx - 100)
-              const end = Math.min(content.length, idx + query.length + 100)
-              context = content.substring(start, end).replace(/\n/g, ' ')
-            }
-
-            return {
-              id: filePath,
-              label: label,
-              harness: path.basename(dir),
-              directory: dir,
-              labelMatch: labelMatch,
-              contentMatch: contentMatch,
-              context: context,
-              score: (labelMatch ? 2 : 0) + (contentMatch ? 1 : 0)
-            }
-          } catch (e) {
-            return null
-          }
-        })
-
-        const batchResults = await Promise.all(batchPromises)
-        batchResults.forEach(r => { if (r) results.push(r) })
+  const dirs = config.harnessDirectories.slice()
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(path.join(__dirname, 'search-worker.js'), {
+      workerData: { query, directories: dirs, batchSize },
+    })
+    worker.on('message', (message) => {
+      if (message.error) {
+        reject(new Error(message.error))
+      } else {
+        resolve(message.results || [])
       }
-    } catch (e) {
-      console.error(`Failed to search in ${dir}:`, e.message)
-    }
-  }
-
-  // Sort by score descending, then by label
-  results.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
-  return results
+    })
+    worker.on('error', (err) => reject(err))
+  })
 })
