@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>locate — Session Archive Search</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; line-height: 1.6; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    h1 { font-size: 42px; font-weight: 700; letter-spacing: -1px; margin-bottom: 8px; }
+    h2 { font-size: 24px; font-weight: 600; margin: 32px 0 16px; color: #00ff88; }
+    h3 { font-size: 18px; font-weight: 600; margin: 24px 0 12px; color: #00ff88; }
+    p { color: #ccc; margin-bottom: 16px; }
+    a { color: #00ff88; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .tag { display: inline-block; background: #1a1a1a; color: #00ff88; border: 1px solid #00ff88; padding: 4px 10px; border-radius: 4px; font-size: 12px; margin-right: 8px; margin-bottom: 8px; }
+    .card { background: #111; border: 1px solid #222; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    .card h3 { color: #fff; margin-top: 0; }
+    code { background: #1a1a1a; color: #00ff88; padding: 2px 6px; border-radius: 4px; font-family: 'Monaco', 'Consolas', monospace; font-size: 13px; }
+    pre { background: #1a1a1a; color: #fff; padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+    pre code { background: transparent; color: #fff; padding: 0; }
+    .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin: 24px 0; }
+    .feature { background: #111; border: 1px solid #222; border-radius: 8px; padding: 16px; }
+    .feature h4 { color: #00ff88; margin-bottom: 8px; }
+    .feature p { color: #888; font-size: 14px; margin: 0; }
+    .mcp-config { background: #0a0a0a; border: 1px solid #333; border-radius: 8px; padding: 20px; margin: 20px 0; }
+    .mcp-config h3 { color: #00ff88; margin-top: 0; }
+    .table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .table th, .table td { border: 1px solid #333; padding: 8px 12px; text-align: left; }
+    .table th { background: #1a1a1a; color: #00ff88; }
+    .table tr:nth-child(even) { background: #0a0a0a; }
+    .badge { display: inline-block; background: #00ff88; color: #000; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid #222; color: #666; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>locate</h1>
+    <p style="font-size: 18px; color: #888;">A searchable interface for archived coding sessions across all AI agent harnesses</p>
+
+    <div class="feature-grid">
+      <div class="feature">
+        <h4>🔍 Cross-Harness Search</h4>
+        <p>Search across all archived sessions from Claude, Codex, Opencode, Cline, Pi, T3, GitHub Copilot, Cursor, and more.</p>
+      </div>
+      <div class="feature">
+        <h4>🖤 Copilot-Style UI</h4>
+        <p>Black background, white text. Left column session list, right column content. Selectable and copyable text.</p>
+      </div>
+      <div class="feature">
+        <h4>⚡ Parallel Search</h4>
+        <p>Configurable batch scanning (5/10/20) to prevent lag on large archives.</p>
+      </div>
+      <div class="feature">
+        <h4>📂 No Copies</h4>
+        <p>Reads session files directly from harness directories — no files are copied or moved.</p>
+      </div>
+      <div class="feature">
+        <h4>🔧 MCP Server</h4>
+        <p>Control locate from Claude, Cline, Opencode, GitHub Copilot, and other MCP-compatible clients.</p>
+      </div>
+      <div class="feature">
+        <h4>🎯 /locate Skill</h4>
+        <p>Agent skill that teaches models to use locate for session search without wasting tokens.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Installation</h2>
+      <h3>1. Download the App</h3>
+      <p>Clone or download the repository:</p>
+      <pre><code>git clone https://github.com/xen38/locate.git
+cd locate
+npm install</code></pre>
+      <h3>2. Run the App</h3>
+      <pre><code>npx electron .</code></pre>
+      <h3>3. Add Harness Directories</h3>
+      <p>Open the menu (top-right button) → Harnesses → Add Folder, or click "Scan & Autodetect" to automatically find harness directories on your system.</p>
+    </div>
+
+    <div class="card">
+      <h2>Supported Harnesses &amp; Formats</h2>
+      <table class="table">
+        <thead>
+          <tr><th>Harness</th><th>Format</th><th>Default Location</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Claude Code</td><td><span class="badge">JSONL</span></td><td><code>~/.claude/projects/</code></td></tr>
+          <tr><td>Codex</td><td><span class="badge">JSONL</span> <span class="badge">SQLite</span></td><td><code>~/.codex/sessions/</code></td></tr>
+          <tr><td>Cline</td><td><span class="badge">JSON</span></td><td><code>~/.cline/data/sessions/</code></td></tr>
+          <tr><td>Pi</td><td><span class="badge">JSONL</span></td><td><code>~/.pi/agent/sessions/</code></td></tr>
+          <tr><td>T3 Code</td><td><span class="badge">SQLite</span></td><td><code>~/.t3/userdata/statev2.sqlite</code></td></tr>
+          <tr><td>GitHub Copilot</td><td><span class="badge">JSONL</span> <span class="badge">SQLite</span></td><td><code>~/.copilot/session-state/</code></td></tr>
+          <tr><td>Cursor</td><td><span class="badge">JSONL</span> <span class="badge">SQLite</span> <span class="badge">Markdown</span></td><td><code>~/.cursor/projects/</code></td></tr>
+          <tr><td>Aider</td><td><span class="badge">Markdown</span></td><td><code>.aider.chat.history.md</code></td></tr>
+          <tr><td>Opencode</td><td><span class="badge">SQLite</span></td><td><code>.opencode/opencode.db</code></td></tr>
+          <tr><td>Continue.dev</td><td><span class="badge">JSON</span></td><td><code>~/.continue/sessions/</code></td></tr>
+          <tr><td>Zed</td><td><span class="badge">SQLite</span></td><td><code>threads.db</code></td></tr>
+          <tr><td>Windsurf / Devin</td><td><span class="badge">Protobuf</span></td><td><code>state.vscdb</code></td></tr>
+          <tr><td>Roo Code</td><td><span class="badge">JSON</span></td><td>Varies</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>MCP Server</h2>
+      <p>The locate MCP server exposes session search as MCP tools, allowing AI assistants to search archived sessions without reading the interface or wasting tokens.</p>
+      <div class="mcp-config">
+        <h3>Install on GitHub Copilot</h3>
+        <p>Add the following to your GitHub Copilot MCP configuration:</p>
+        <pre><code>{
+  "mcpServers": {
+    "locate": {
+      "command": "node",
+      "args": ["/path/to/locate/mcp-server.js"],
+      "env": {}
+    }
+  }
+}</code></pre>
+        <h3>Available MCP Tools</h3>
+        <ul>
+          <li><strong>locate_search</strong> — Search across all archived sessions by title and content</li>
+          <li><strong>locate_read_session</strong> — Read the full content of a specific session</li>
+          <li><strong>locate_list_sessions</strong> — List all sessions across configured harnesses</li>
+          <li><strong>locate_list_harnesses</strong> — List configured harness directories</li>
+          <li><strong>locate_add_harness</strong> — Add a new harness directory to scan</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>/locate Agent Skill</h2>
+      <p>The <code>/locate</code> skill teaches agents to use the locate app for session search. When prompted with <code>/locate &lt;query&gt;</code>, the agent uses the locate app's search bar to find relevant sessions and returns the content to the workstation.</p>
+      <p><strong>Key principle:</strong> The model never reads the interface directly — it uses the search bar and lets the search engine do the work, preventing token waste.</p>
+      <p>See <code>skill/locate.md</code> in the repository for the full skill documentation.</p>
+    </div>
+
+    <div class="card">
+      <h2>Repository</h2>
+      <p>Source code: <a href="https://github.com/xen38/locate">github.com/xen38/locate</a></p>
+      <p>Issues &amp; PRs: <a href="https://github.com/xen38/locate/issues">github.com/xen38/locate/issues</a></p>
+    </div>
+
+    <div class="footer">
+      <p>locate — Session Archive Search Engine for AI Agents</p>
+      <p>Built with Electron • Black &amp; White Copilot-Style UI • No file copies</p>
+    </div>
+  </div>
+</body>
+</html>

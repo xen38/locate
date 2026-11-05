@@ -201,18 +201,36 @@ function readSessionFile(filePath) {
   }
 }
 
-function listSessionsInDir(dirPath) {
-  const sessions = []
+function collectSessionFiles(dirPath) {
+  // Recursively collect session files (with supported extensions) under dirPath.
+  const files = []
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true })
     for (const entry of entries) {
-      if (!entry.isFile()) continue
-      const ext = path.extname(entry.name).toLowerCase()
-      if (!SUPPORTED_EXTS.includes(ext)) continue
+      const fullPath = path.join(dirPath, entry.name)
+      if (entry.isDirectory()) {
+        files.push(...collectSessionFiles(fullPath))
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase()
+        if (SUPPORTED_EXTS.includes(ext)) {
+          files.push({ name: entry.name, fullPath })
+        }
+      }
+    }
+  } catch (e) {
+    // Directory may not exist or be inaccessible
+  }
+  return files
+}
 
-      const filePath = path.join(dirPath, entry.name)
+function listSessionsInDir(dirPath) {
+  const sessions = []
+  try {
+    const files = collectSessionFiles(dirPath)
+    for (const { name: entryName, fullPath: filePath } of files) {
+      const ext = path.extname(entryName).toLowerCase()
       const stat = fs.statSync(filePath)
-      const label = path.basename(entry.name, ext)
+      const label = path.basename(entryName, ext)
 
       // Read a small preview
       let preview = ''
@@ -220,22 +238,22 @@ function listSessionsInDir(dirPath) {
         if (ext === '.jsonl') {
           const content = fs.readFileSync(filePath, 'utf8')
           const firstLine = content.split('\n')[0]
-          preview = firstLine ? firstLine.substring(0, 120) : entry.name
+          preview = firstLine ? firstLine.substring(0, 120) : entryName
         } else if (ext === '.json') {
           const content = fs.readFileSync(filePath, 'utf8')
           try {
             const obj = JSON.parse(content)
-            preview = (obj.title || obj.label || obj.session_id || entry.name).toString().substring(0, 120)
+            preview = (obj.title || obj.label || obj.session_id || entryName).toString().substring(0, 120)
           } catch (e) {
-            preview = entry.name
+            preview = entryName
           }
         } else {
           const content = fs.readFileSync(filePath, 'utf8')
           const firstLine = content.split('\n')[0]
-          preview = firstLine ? firstLine.substring(0, 120) : entry.name
+          preview = firstLine ? firstLine.substring(0, 120) : entryName
         }
       } catch (e) {
-        preview = entry.name
+        preview = entryName
       }
 
       sessions.push({
@@ -272,18 +290,14 @@ function searchSessions(query, options = {}) {
 
   for (const dir of config.harnessDirectories) {
     try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true })
-      const files = entries.filter(
-        e => e.isFile() && SUPPORTED_EXTS.includes(path.extname(e.name).toLowerCase())
-      )
+      const files = collectSessionFiles(dir)
 
       for (let i = 0; i < files.length; i += batchSize) {
         const batch = files.slice(i, i + batchSize)
-        for (const entry of batch) {
-          const filePath = path.join(dir, entry.name)
+        for (const { name: entryName, fullPath: filePath } of batch) {
           try {
             const content = readSessionFile(filePath)
-            const label = path.basename(entry.name, path.extname(entry.name))
+            const label = path.basename(entryName, path.extname(entryName))
             const labelMatch = label.toLowerCase().includes(queryLower)
             const contentMatch = content.toLowerCase().includes(queryLower)
 
@@ -407,7 +421,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 })
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request
+  const { name, arguments: args } = request.params
 
   try {
     switch (name) {
