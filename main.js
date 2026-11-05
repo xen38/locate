@@ -101,8 +101,9 @@ ipcMain.handle('config:set', async (event, updates) => {
 
 // IPC: Add a harness directory
 ipcMain.handle('harness:add', async (event, dirPath) => {
-  if (!config.harnessDirectories.includes(dirPath)) {
-    config.harnessDirectories.push(dirPath)
+  const normalized = path.normalize(dirPath)
+  if (!config.harnessDirectories.includes(normalized)) {
+    config.harnessDirectories.push(normalized)
     saveConfig()
   }
   return config.harnessDirectories
@@ -346,10 +347,16 @@ ipcMain.handle('session:list', async (event, dirPath) => {
 // IPC: List all sessions across all harness directories
 ipcMain.handle('session:listAll', async () => {
   const allSessions = []
+  const seen = new Set()
   for (const dir of config.harnessDirectories) {
     try {
       const sessions = await sessionListHandler(dir)
-      allSessions.push(...sessions)
+      for (const s of sessions) {
+        if (!seen.has(s.id)) {
+          seen.add(s.id)
+          allSessions.push(s)
+        }
+      }
     } catch (e) {
       console.error(`Failed to list sessions in ${dir}:`, e.message)
     }

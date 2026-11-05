@@ -126,6 +126,19 @@ function extractTextFromJsonFile(filePath) {
   }
 }
 
+// Columns that usually hold session text. Kept broad so unknown harness
+// schemas (e.g. Codex "objective", T3 "goal") are still picked up.
+const SQL_TEXT_COL_KEYWORDS = /content|message|text|body|prompt|response|title|summary|objective|goal|description|note|answer|output/i
+
+function pickTextColumns(columns) {
+  const keywordCols = columns.filter((c) => SQL_TEXT_COL_KEYWORDS.test(c))
+  if (keywordCols.length > 0) return keywordCols
+  // Fallback: any non-id/timestamp column is a candidate text column.
+  return columns.filter(
+    (c) => !/^(id|session_id|thread_id|created_at|updated_at|timestamp|type|role)$/i.test(c)
+  )
+}
+
 function extractTextFromSqlite(dbPath) {
   // Try to open as SQLite and extract session text
   try {
@@ -145,11 +158,7 @@ function extractTextFromSqlite(dbPath) {
           .all()
           .map(c => c.name)
 
-        // Look for text-like columns
-        const textCols = columns.filter(c =>
-          /content|message|text|body|prompt|response|title|summary/i.test(c)
-        )
-
+        const textCols = pickTextColumns(columns)
         if (textCols.length === 0) continue
 
         const idCol = columns.find(c => /id|session|thread/i.test(c)) || columns[0]
@@ -276,8 +285,14 @@ function listSessionsInDir(dirPath) {
 
 function listAllSessions() {
   const all = []
+  const seen = new Set()
   for (const dir of config.harnessDirectories) {
-    all.push(...listSessionsInDir(dir))
+    for (const s of listSessionsInDir(dir)) {
+      if (!seen.has(s.id)) {
+        seen.add(s.id)
+        all.push(s)
+      }
+    }
   }
   all.sort((a, b) => b.modified - a.modified)
   return all
@@ -510,11 +525,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'locate_add_harness': {
-        if (!config.harnessDirectories.includes(args.dirPath)) {
-          config.harnessDirectories.push(args.dirPath)
-          saveConfig()
-        }
-        return {
+              const normalized = path.normalize(args.dirPath)
+              if (!config.harnessDirectories.includes(normalized)) {
+                config.harnessDirectories.push(normalized)
+                saveConfig()
+              }
+              return {
           content: [
             {
               type: 'text',
