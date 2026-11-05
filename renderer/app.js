@@ -108,6 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return
     }
 
+    const fragment = document.createDocumentFragment()
     sessions.forEach((s) => {
       const item = document.createElement('div')
       item.className = `session-item${selectedSessionId === s.id ? ' selected' : ''}`
@@ -120,8 +121,9 @@ document.addEventListener('DOMContentLoaded', () => {
         renderSessionList(allSessions)
         loadSessionContent(s)
       })
-      sessionList.appendChild(item)
+      fragment.appendChild(item)
     })
+    sessionList.appendChild(fragment)
   }
 
   async function loadSessionContent(session) {
