@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const Database = require('better-sqlite3')
@@ -57,6 +57,9 @@ function createWindow() {
   })
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+
+  // Remove default Electron menu bar (File, Edit, View, Window, Help)
+  Menu.setApplicationMenu(null)
 
   mainWindow.on('closed', () => {
     mainWindow = null

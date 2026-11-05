@@ -25,6 +25,7 @@ a { color: #ffffff; }
   padding: 0 16px;
   background: #000000;
   border-bottom: 1px solid #333333;
+  position: relative;
 }
 
 .app-title {
@@ -41,7 +42,7 @@ a { color: #ffffff; }
 
 #searchInput {
   flex: 1;
-  max-width: 360px;
+  min-width: 200px;
   height: 32px;
   padding: 0 12px;
   background: #111111;
