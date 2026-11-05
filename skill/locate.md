@@ -53,6 +53,18 @@ Returns sessions whose titles or contents mention authentication, token, refresh
 - **Harnesses** — Add directories where your coding agents archive sessions. Use "Scan & autodetect harnesses" to find common locations, or "Browse folder…" to pick one manually.
 - **Search batch size** — Controls how many sessions are scanned in parallel per group (5, 10, or 20). Default: 10.
 
+## Programmatic access (MCP)
+
+The Locate app also exposes an MCP server (`mcp-server.js`) that agents can call programmatically instead of using the `/locate` chat command. Available MCP tools:
+
+- `locate_search` — Search across all sessions (query + optional batchSize)
+- `locate_read_session` — Read the full content of a single session by file path
+- `locate_list_sessions` — List all sessions across configured harness directories
+- `locate_list_harnesses` — List configured harness directories
+- `locate_add_harness` — Add a new harness directory to scan
+
+Agents using MCP should call `locate_search` with their query, then `locate_read_session` to fetch the full content of a selected session. The same principle applies: the search engine does the scanning; the agent only formulates the query and reads the returned results.
+
 ## Key principle
 
 **The model never reads the interface and never searches by itself.** The search engine of the Locate app does the scanning. The agent only formulates the query and reads the returned results. This prevents token waste from reading entire session files to find a small relevant piece of information.
