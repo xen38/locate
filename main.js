@@ -423,7 +423,8 @@ ipcMain.handle('harness:autodetect', async () => {
   const keywords = [
     'session', 'harness', 'copilot', 'cursor', 'cline', 'windsurf',
     'allai', 'midas', 'ucos', 'locate', 'archive', 'chat', 'conversation',
-    't3', 'pi'
+    't3', 'pi', 'codex', 'opencode', 'claude', 'continue', 'zed', 'roo',
+    'aider', 'devin'
   ]
 
   const detected = []
