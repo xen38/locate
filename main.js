@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const Database = require('better-sqlite3')
 
 // Configuration file path (user data dir)
 const CONFIG_FILE = path.join(app.getPath('userData'), 'config.json')
@@ -127,44 +128,191 @@ ipcMain.handle('dialog:openFolder', async () => {
   return null
 })
 
+const SUPPORTED_EXTS = ['.md', '.txt', '.json', '.jsonl', '.db', '.sqlite']
+
+function extractTextFromJsonl(content) {
+  const lines = content.split('\n').filter(l => l.trim())
+  const texts = []
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line)
+      const text = extractTextFromJsonValue(obj)
+      if (text) texts.push(text)
+    } catch (e) {
+      if (line.trim()) texts.push(line.trim())
+    }
+  }
+  return texts.join('\n')
+}
+
+function extractTextFromJsonValue(obj) {
+  if (typeof obj === 'string') return obj
+  if (obj === null || obj === undefined) return ''
+
+  if (typeof obj.content === 'string') return obj.content
+  if (typeof obj.message === 'string') return obj.message
+  if (typeof obj.text === 'string') return obj.text
+  if (typeof obj.prompt === 'string') return obj.prompt
+  if (typeof obj.response === 'string') return obj.response
+
+  if (Array.isArray(obj.content)) {
+    return obj.content
+      .map(c => (typeof c === 'string' ? c : c.text || c.content || ''))
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  const parts = []
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'type' || k === 'id' || k === 'timestamp' || k === 'role') continue
+    if (typeof v === 'string' && v.length > 0) parts.push(`${k}: ${v}`)
+    else if (typeof v === 'object' && v !== null) {
+      const t = extractTextFromJsonValue(v)
+      if (t) parts.push(t)
+    }
+  }
+  return parts.join('\n')
+}
+
+function extractTextFromJsonFile(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8')
+    try {
+      const obj = JSON.parse(content)
+      return extractTextFromJsonValue(obj)
+    } catch (e) {
+      return extractTextFromJsonl(content)
+    }
+  } catch (e) {
+    return ''
+  }
+}
+
+function extractTextFromSqlite(dbPath) {
+  try {
+    const db = new Database(dbPath, { readonly: true })
+    const texts = []
+
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map(r => r.name)
+
+    for (const table of tables) {
+      try {
+        const columns = db
+          .prepare(`PRAGMA table_info(${table})`)
+          .all()
+          .map(c => c.name)
+
+        const textCols = columns.filter(c =>
+          /content|message|text|body|prompt|response|title|summary/i.test(c)
+        )
+
+        if (textCols.length === 0) continue
+
+        const idCol = columns.find(c => /id|session|thread/i.test(c)) || columns[0]
+        const query = `SELECT ${[idCol, ...textCols].join(', ')} FROM ${table} LIMIT 1000`
+        const rows = db.prepare(query).all()
+
+        for (const row of rows) {
+          const parts = []
+          for (const col of textCols) {
+            if (row[col] && typeof row[col] === 'string') {
+              parts.push(row[col])
+            }
+          }
+          if (parts.length > 0) texts.push(parts.join('\n'))
+        }
+      } catch (e) {
+        // skip
+      }
+    }
+
+    db.close()
+    return texts.join('\n')
+  } catch (e) {
+    return ''
+  }
+}
+
+function readSessionFileContent(filePath) {
+  const ext = path.extname(filePath).toLowerCase()
+  try {
+    switch (ext) {
+      case '.jsonl':
+        return extractTextFromJsonl(fs.readFileSync(filePath, 'utf8'))
+      case '.json':
+        return extractTextFromJsonFile(filePath)
+      case '.db':
+      case '.sqlite':
+        return extractTextFromSqlite(filePath)
+      case '.md':
+      case '.txt':
+        return fs.readFileSync(filePath, 'utf8')
+      default:
+        return fs.readFileSync(filePath, 'utf8')
+    }
+  } catch (e) {
+    return `[Error reading ${filePath}: ${e.message}]`
+  }
+}
+
+function getSessionPreview(filePath, ext) {
+  try {
+    if (ext === '.jsonl') {
+      const content = fs.readFileSync(filePath, 'utf8')
+      const firstLine = content.split('\n')[0]
+      return firstLine ? firstLine.substring(0, 120) : path.basename(filePath)
+    }
+    if (ext === '.json') {
+      const content = fs.readFileSync(filePath, 'utf8')
+      try {
+        const obj = JSON.parse(content)
+        return (obj.title || obj.label || obj.session_id || path.basename(filePath)).toString().substring(0, 120)
+      } catch (e) {
+        return path.basename(filePath)
+      }
+    }
+    if (ext === '.db' || ext === '.sqlite') {
+      return `SQLite database: ${path.basename(filePath)}`
+    }
+    const content = fs.readFileSync(filePath, 'utf8')
+    const firstLine = content.split('\n')[0].trim()
+    return firstLine || content.substring(0, 100)
+  } catch (e) {
+    return path.basename(filePath)
+  }
+}
+
 // IPC: List session files in a directory
 ipcMain.handle('session:list', async (event, dirPath) => {
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true })
     const sessions = []
-    const supportedExts = ['.md', '.txt', '.json']
 
     for (const entry of entries) {
       if (!entry.isFile()) continue
       const ext = path.extname(entry.name).toLowerCase()
-      if (!supportedExts.includes(ext)) continue
+      if (!SUPPORTED_EXTS.includes(ext)) continue
 
       const filePath = path.join(dirPath, entry.name)
       const stat = fs.statSync(filePath)
       const label = path.basename(entry.name, ext)
-
-      // Read a small preview for the title (first non-empty line or first 100 chars)
-      let preview = ''
-      try {
-        const content = fs.readFileSync(filePath, 'utf8')
-        const firstLine = content.split('\n')[0].trim()
-        preview = firstLine || content.substring(0, 100)
-      } catch (e) {
-        preview = entry.name
-      }
+      const preview = getSessionPreview(filePath, ext).substring(0, 120)
 
       sessions.push({
         id: filePath,
         label: label,
-        preview: preview.substring(0, 120),
+        preview: preview,
         harness: path.basename(dirPath),
         directory: dirPath,
         modified: stat.mtimeMs,
-        size: stat.size
+        size: stat.size,
+        ext,
       })
     }
 
-    // Sort by modified time descending
     sessions.sort((a, b) => b.modified - a.modified)
     return sessions
   } catch (e) {
@@ -192,34 +340,26 @@ async function sessionListHandler(dirPath) {
   try {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true })
     const sessions = []
-    const supportedExts = ['.md', '.txt', '.json']
 
     for (const entry of entries) {
       if (!entry.isFile()) continue
       const ext = path.extname(entry.name).toLowerCase()
-      if (!supportedExts.includes(ext)) continue
+      if (!SUPPORTED_EXTS.includes(ext)) continue
 
       const filePath = path.join(dirPath, entry.name)
       const stat = fs.statSync(filePath)
       const label = path.basename(entry.name, ext)
-
-      let preview = ''
-      try {
-        const content = fs.readFileSync(filePath, 'utf8')
-        const firstLine = content.split('\n')[0].trim()
-        preview = firstLine || content.substring(0, 100)
-      } catch (e) {
-        preview = entry.name
-      }
+      const preview = getSessionPreview(filePath, ext).substring(0, 120)
 
       sessions.push({
         id: filePath,
         label: label,
-        preview: preview.substring(0, 120),
+        preview: preview,
         harness: path.basename(dirPath),
         directory: dirPath,
         modified: stat.mtimeMs,
-        size: stat.size
+        size: stat.size,
+        ext,
       })
     }
 
@@ -233,8 +373,8 @@ async function sessionListHandler(dirPath) {
 // IPC: Read a single session file content
 ipcMain.handle('session:read', async (event, filePath) => {
   try {
-    const content = fs.readFileSync(filePath, 'utf8')
     const stat = fs.statSync(filePath)
+    const content = readSessionFileContent(filePath)
     return {
       path: filePath,
       content: content,

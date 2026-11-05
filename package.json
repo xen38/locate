@@ -9,7 +9,14 @@
     "build": "electron-builder",
     "test": "node test/search.test.js"
   },
-  "keywords": ["sessions", "search", "archive", "harness", "agent", "copilot"],
+  "keywords": [
+    "sessions",
+    "search",
+    "archive",
+    "harness",
+    "agent",
+    "copilot"
+  ],
   "author": "xen38",
   "license": "MIT",
   "devDependencies": {
@@ -26,5 +33,9 @@
       "target": "nsis",
       "icon": "assets/icon.ico"
     }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "better-sqlite3": "^13.0.3"
   }
 }
