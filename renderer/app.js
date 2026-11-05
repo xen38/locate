@@ -23,7 +23,8 @@ let menuOpen = false
 let batchSize = 10
 
 // Toggle menu
-menuBtn.addEventListener('click', () => {
+menuBtn.addEventListener('click', (e) => {
+  e.stopPropagation()
   menuOpen = !menuOpen
   menuPanel.classList.toggle('open', menuOpen)
   if (menuOpen) {
