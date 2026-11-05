@@ -55,7 +55,7 @@ loadConfig()
 
 // ── Session reading helpers ────────────────────────────────────────────────
 
-const SUPPORTED_EXTS = ['.md', '.txt', '.json', '.jsonl']
+const SUPPORTED_EXTS = ['.md', '.txt', '.json', '.jsonl', '.db', '.sqlite']
 
 function readTextFile(filePath) {
   return fs.readFileSync(filePath, 'utf8')
@@ -187,6 +187,9 @@ function readSessionFile(filePath) {
         return extractTextFromJsonl(readTextFile(filePath))
       case '.json':
         return extractTextFromJsonFile(filePath)
+      case '.db':
+      case '.sqlite':
+        return extractTextFromSqlite(filePath)
       case '.md':
       case '.txt':
         return readTextFile(filePath)
