@@ -24,22 +24,27 @@ let batchSize = 10
 
 // Toggle menu
 function toggleMenu(e) {
-  if (e) e.stopPropagation()
+  if (e) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
   menuOpen = !menuOpen
-  menuPanel.classList.toggle('open', menuOpen)
   if (menuOpen) {
+    menuPanel.style.display = 'block'
     renderHarnesses()
+  } else {
+    menuPanel.style.display = 'none'
   }
 }
 
-// Menu button click (single listener, no inline onclick to avoid double-fire)
+// Menu button click
 menuBtn.addEventListener('click', toggleMenu)
 
 // Close menu when clicking outside
 document.addEventListener('click', (e) => {
   if (menuOpen && !menuPanel.contains(e.target) && e.target !== menuBtn) {
     menuOpen = false
-    menuPanel.classList.remove('open')
+    menuPanel.style.display = 'none'
   }
 })
 

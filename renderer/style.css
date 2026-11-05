@@ -101,6 +101,10 @@ a { color: #ffffff; }
   display: block;
 }
 
+.menu-panel {
+  display: none;
+}
+
 .menu-section {
   margin-bottom: 20px;
 }
