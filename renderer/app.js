@@ -32,9 +32,7 @@ function toggleMenu(e) {
   }
 }
 
-menuBtn.addEventListener('click', (e) => {
-  toggleMenu(e)
-})
+// Inline onclick="toggleMenu(event)" on the button handles clicks
 
 // Close menu when clicking outside
 document.addEventListener('click', (e) => {
