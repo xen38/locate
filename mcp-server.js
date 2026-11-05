@@ -58,7 +58,9 @@ loadConfig()
 const SUPPORTED_EXTS = ['.md', '.txt', '.json', '.jsonl', '.db', '.sqlite']
 
 function readTextFile(filePath) {
-  return fs.readFileSync(filePath, 'utf8')
+  // Read as UTF-8 and strip a leading BOM so JSON.parse and previews work
+  // on files saved with a byte-order mark (common on Windows).
+  return fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '')
 }
 
 function extractTextFromJsonl(content) {
@@ -112,7 +114,7 @@ function extractTextFromJson(obj) {
 
 function extractTextFromJsonFile(filePath) {
   try {
-    const content = fs.readFileSync(filePath, 'utf8')
+    const content = readTextFile(filePath)
     // Try parsing as single JSON object
     try {
       const obj = JSON.parse(content)
@@ -245,19 +247,21 @@ function listSessionsInDir(dirPath) {
       let preview = ''
       try {
         if (ext === '.jsonl') {
-          const content = fs.readFileSync(filePath, 'utf8')
+          const content = readTextFile(filePath)
           const firstLine = content.split('\n')[0]
           preview = firstLine ? firstLine.substring(0, 120) : entryName
         } else if (ext === '.json') {
-          const content = fs.readFileSync(filePath, 'utf8')
+          const content = readTextFile(filePath)
           try {
             const obj = JSON.parse(content)
             preview = (obj.title || obj.label || obj.session_id || entryName).toString().substring(0, 120)
           } catch (e) {
             preview = entryName
           }
+        } else if (ext === '.db' || ext === '.sqlite') {
+          preview = 'SQLite database: ' + entryName
         } else {
-          const content = fs.readFileSync(filePath, 'utf8')
+          const content = readTextFile(filePath)
           const firstLine = content.split('\n')[0]
           preview = firstLine ? firstLine.substring(0, 120) : entryName
         }
@@ -346,8 +350,19 @@ function searchSessions(query, options = {}) {
     }
   }
 
-  results.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
-  return results
+  // Deduplicate by file path so overlapping or repeated harness directories
+  // never produce duplicate results.
+  const seen = new Set()
+  const deduped = []
+  for (const r of results) {
+    if (!seen.has(r.id)) {
+      seen.add(r.id)
+      deduped.push(r)
+    }
+  }
+
+  deduped.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
+  return deduped
 }
 
 // ── MCP Server ─────────────────────────────────────────────────────────────
@@ -525,11 +540,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'locate_add_harness': {
-              const normalized = path.normalize(args.dirPath)
-              if (!config.harnessDirectories.includes(normalized)) {
-                config.harnessDirectories.push(normalized)
-                saveConfig()
-              }
+        // path.resolve() (not normalize) collapses trailing separators, '.', '..'
+        // and relative segments so equivalent Windows paths dedupe correctly.
+        const normalized = path.resolve(args.dirPath)
+        if (!config.harnessDirectories.includes(normalized)) {
+          config.harnessDirectories.push(normalized)
+          saveConfig()
+        }
               return {
           content: [
             {

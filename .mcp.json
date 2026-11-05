@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "locate": {
+      "command": "node",
+      "args": ["K:\\Repos\\locate\\mcp-server.js"],
+      "transport": "stdio",
+      "description": "Locate app MCP server - search archived coding sessions across all harnesses"
+    }
+  }
+}

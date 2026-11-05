@@ -66,9 +66,15 @@ function extractTextFromJsonValue(obj) {
   return parts.join('\n')
 }
 
+function readTextFile(filePath) {
+  // Read as UTF-8 and strip a leading BOM so JSON.parse works on files
+  // saved with a byte-order mark (common on Windows).
+  return fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '')
+}
+
 function extractTextFromJsonFile(filePath) {
   try {
-    const content = fs.readFileSync(filePath, 'utf8')
+    const content = readTextFile(filePath)
     try {
       const obj = JSON.parse(content)
       return extractTextFromJsonValue(obj)
@@ -129,8 +135,8 @@ function readSessionFileContent(filePath) {
       case '.db':
       case '.sqlite': return extractTextFromSqlite(filePath)
       case '.md':
-      case '.txt': return fs.readFileSync(filePath, 'utf8')
-      default: return fs.readFileSync(filePath, 'utf8')
+      case '.txt': return readTextFile(filePath)
+      default: return readTextFile(filePath)
     }
   } catch (e) {
     return `[Error reading ${filePath}: ${e.message}]`
@@ -286,8 +292,19 @@ async function run() {
     }
   }
 
-  results.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
-  parentPort.postMessage({ results })
+  // Deduplicate by file path so overlapping or repeated directories never
+  // produce duplicate results.
+  const seen = new Set()
+  const deduped = []
+  for (const r of results) {
+    if (!seen.has(r.id)) {
+      seen.add(r.id)
+      deduped.push(r)
+    }
+  }
+
+  deduped.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
+  parentPort.postMessage({ results: deduped })
 }
 
 run().catch((err) => {
