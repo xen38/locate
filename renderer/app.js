@@ -23,13 +23,17 @@ let menuOpen = false
 let batchSize = 10
 
 // Toggle menu
-menuBtn.addEventListener('click', (e) => {
-  e.stopPropagation()
+function toggleMenu(e) {
+  if (e) e.stopPropagation()
   menuOpen = !menuOpen
   menuPanel.classList.toggle('open', menuOpen)
   if (menuOpen) {
     renderHarnesses()
   }
+}
+
+menuBtn.addEventListener('click', (e) => {
+  toggleMenu(e)
 })
 
 // Close menu when clicking outside
