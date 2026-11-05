@@ -1,0 +1,30 @@
+{
+  "name": "locate",
+  "version": "1.0.0",
+  "description": "An interface for your archive of sessions across all harnesses - searchable by users and agents via /locate",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder",
+    "test": "node test/search.test.js"
+  },
+  "keywords": ["sessions", "search", "archive", "harness", "agent", "copilot"],
+  "author": "xen38",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.xen38.locate",
+    "productName": "locate",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    }
+  }
+}

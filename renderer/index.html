@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>locate — session archive search</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="app-title">locate</div>
+    <div class="search-wrap">
+      <input type="text" id="searchInput" placeholder="Search sessions across all harnesses..." autocomplete="off">
+      <button id="menuBtn" class="menu-btn" title="Menu">&#9776;</button>
+    </div>
+  </header>
+
+  <div class="menu-panel" id="menuPanel">
+    <div class="menu-section">
+      <div class="menu-section-title">Harnesses</div>
+      <div id="harnessList" class="harness-list"></div>
+      <div class="menu-actions">
+        <button id="btnScanHarnesses" class="menu-btn-action">Scan &amp; autodetect harnesses</button>
+        <button id="btnAddFolder" class="menu-btn-action">Browse folder…</button>
+      </div>
+    </div>
+    <div class="menu-section">
+      <div class="menu-section-title">Settings</div>
+      <div class="setting-row">
+        <label>Search batch size</label>
+        <select id="settingBatchSize">
+          <option value="5">5</option>
+          <option value="10">10</option>
+          <option value="20">20</option>
+        </select>
+        <span class="setting-desc">sessions scanned in parallel per group</span>
+      </div>
+    </div>
+    <div class="menu-section">
+      <div class="menu-section-title">About</div>
+      <div class="menu-item">locate v1.0.0</div>
+      <div class="menu-item">Reads session files directly — no copies</div>
+    </div>
+  </div>
+
+  <div class="container">
+    <aside class="sidebar">
+      <div class="sidebar-header">Sessions</div>
+      <div id="sessionList" class="session-list"></div>
+    </aside>
+
+    <main class="panel">
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon">&#128269;</div>
+        <div class="empty-title">Select a session</div>
+        <div class="empty-desc">Click a session on the left to read its contents.</div>
+      </div>
+      <div id="sessionView" class="session-view hidden">
+        <div class="session-meta">
+          <span id="metaHarness" class="meta-harness"></span>
+          <span id="metaPath" class="meta-path"></span>
+        </div>
+        <div id="sessionContent" class="session-content"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
