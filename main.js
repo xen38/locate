@@ -258,6 +258,28 @@ function readSessionFileContent(filePath) {
   }
 }
 
+// Recursively collect all session files under a directory
+function collectSessionFiles(dirPath) {
+  const results = []
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name)
+      if (entry.isDirectory()) {
+        results.push(...collectSessionFiles(fullPath))
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase()
+        if (SUPPORTED_EXTS.includes(ext)) {
+          results.push(fullPath)
+        }
+      }
+    }
+  } catch (e) {
+    // skip inaccessible directories
+  }
+  return results
+}
+
 function getSessionPreview(filePath, ext) {
   try {
     if (ext === '.jsonl') {
@@ -288,17 +310,13 @@ function getSessionPreview(filePath, ext) {
 // IPC: List session files in a directory
 ipcMain.handle('session:list', async (event, dirPath) => {
   try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+    const filePaths = collectSessionFiles(dirPath)
     const sessions = []
 
-    for (const entry of entries) {
-      if (!entry.isFile()) continue
-      const ext = path.extname(entry.name).toLowerCase()
-      if (!SUPPORTED_EXTS.includes(ext)) continue
-
-      const filePath = path.join(dirPath, entry.name)
+    for (const filePath of filePaths) {
       const stat = fs.statSync(filePath)
-      const label = path.basename(entry.name, ext)
+      const ext = path.extname(filePath).toLowerCase()
+      const label = path.basename(filePath, ext)
       const preview = getSessionPreview(filePath, ext).substring(0, 120)
 
       sessions.push({
@@ -401,7 +419,8 @@ ipcMain.handle('harness:autodetect', async () => {
 
   const keywords = [
     'session', 'harness', 'copilot', 'cursor', 'cline', 'windsurf',
-    'allai', 'midas', 'ucos', 'locate', 'archive', 'chat', 'conversation'
+    'allai', 'midas', 'ucos', 'locate', 'archive', 'chat', 'conversation',
+    't3', 'pi'
   ]
 
   const detected = []
@@ -433,19 +452,16 @@ ipcMain.handle('session:search', async (event, query, options = {}) => {
 
   for (const dir of config.harnessDirectories) {
     try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true })
-      const files = entries.filter(e =>
-        e.isFile() && ['.md', '.txt', '.json'].includes(path.extname(e.name).toLowerCase())
-      )
+      const filePaths = collectSessionFiles(dir)
 
       // Process files in batches of batchSize
-      for (let i = 0; i < files.length; i += batchSize) {
-        const batch = files.slice(i, i + batchSize)
-        const batchPromises = batch.map(async (entry) => {
-          const filePath = path.join(dir, entry.name)
+      for (let i = 0; i < filePaths.length; i += batchSize) {
+        const batch = filePaths.slice(i, i + batchSize)
+        const batchPromises = batch.map(async (filePath) => {
           try {
             const content = fs.readFileSync(filePath, 'utf8')
-            const label = path.basename(entry.name, path.extname(entry.name))
+            const ext = path.extname(filePath).toLowerCase()
+            const label = path.basename(filePath, ext)
             const labelMatch = label.toLowerCase().includes(queryLower)
             const contentMatch = content.toLowerCase().includes(queryLower)
 
