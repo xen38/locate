@@ -1,11 +1,14 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron')
-const { Worker } = require('worker_threads')
 const path = require('path')
 const fs = require('fs')
-const Database = require('better-sqlite3')
+const { IndexingEngine } = require('./packages/core/index')
 
 // Configuration file path (user data dir)
 const CONFIG_FILE = path.join(app.getPath('userData'), 'config.json')
+
+// Shared index database path — same location used by the MCP server so both
+// components share a single index.
+const INDEX_DB_PATH = path.join(app.getPath('userData'), 'locate-index.db')
 
 // Default configuration
 const DEFAULT_CONFIG = {
@@ -39,6 +42,11 @@ function saveConfig() {
 }
 
 loadConfig()
+
+// ── Core Indexing Engine (shared with MCP server) ──────────────────────────
+
+const engine = new IndexingEngine(INDEX_DB_PATH)
+engine.open()
 
 let mainWindow = null
 
@@ -99,28 +107,52 @@ ipcMain.handle('config:set', async (event, updates) => {
   return config
 })
 
-// IPC: Add a harness directory
-ipcMain.handle('harness:add', async (event, dirPath) => {
-  // path.resolve() collapses trailing separators, '.', '..' and relative
-  // segments so equivalent Windows paths dedupe correctly.
-  const normalized = path.resolve(dirPath)
-  if (!config.harnessDirectories.includes(normalized)) {
-    config.harnessDirectories.push(normalized)
-    saveConfig()
+// IPC: Add a harness directory (register as indexing source)
+ipcMain.handle('harness:add', async (event, dirPath, harness) => {
+  try {
+    const normalized = path.resolve(dirPath)
+    if (!fs.existsSync(normalized)) {
+      throw new Error(`Directory does not exist: ${normalized}`)
+    }
+    const sourceId = engine.addSource(normalized, harness || undefined)
+    if (!config.harnessDirectories.includes(normalized)) {
+      config.harnessDirectories.push(normalized)
+      saveConfig()
+    }
+    return { sourceId, path: normalized, harnesses: config.harnessDirectories }
+  } catch (e) {
+    console.error('Failed to add harness:', e.message)
+    throw e
   }
-  return config.harnessDirectories
 })
 
 // IPC: Remove a harness directory
 ipcMain.handle('harness:remove', async (event, dirPath) => {
-  config.harnessDirectories = config.harnessDirectories.filter(d => d !== dirPath)
-  saveConfig()
-  return config.harnessDirectories
+  try {
+    const normalized = path.resolve(dirPath)
+    engine.removeSource(normalized)
+    config.harnessDirectories = config.harnessDirectories.filter(d => d !== normalized)
+    saveConfig()
+    return config.harnessDirectories
+  } catch (e) {
+    console.error('Failed to remove harness:', e.message)
+    throw e
+  }
 })
 
-// IPC: List all harness directories
+// IPC: List all harness directories (sources)
 ipcMain.handle('harness:list', async () => {
-  return config.harnessDirectories
+  const sources = engine.listSources()
+  return sources.map(s => ({
+    path: s.path,
+    name: s.name,
+    harness: s.harness,
+    status: s.status,
+    session_count: s.session_count,
+    indexed_count: s.indexed_count,
+    last_scan: s.last_scan,
+    error: s.error,
+  }))
 })
 
 // IPC: Open folder picker dialog
@@ -135,299 +167,77 @@ ipcMain.handle('dialog:openFolder', async () => {
   return null
 })
 
-const SUPPORTED_EXTS = ['.md', '.txt', '.json', '.jsonl', '.db', '.sqlite']
-
-function extractTextFromJsonl(content) {
-  const lines = content.split('\n').filter(l => l.trim())
-  const texts = []
-  for (const line of lines) {
-    try {
-      const obj = JSON.parse(line)
-      const text = extractTextFromJsonValue(obj)
-      if (text) texts.push(text)
-    } catch (e) {
-      if (line.trim()) texts.push(line.trim())
-    }
-  }
-  return texts.join('\n')
-}
-
-function extractTextFromJsonValue(obj) {
-  if (typeof obj === 'string') return obj
-  if (obj === null || obj === undefined) return ''
-
-  if (typeof obj.content === 'string') return obj.content
-  if (typeof obj.message === 'string') return obj.message
-  if (typeof obj.text === 'string') return obj.text
-  if (typeof obj.prompt === 'string') return obj.prompt
-  if (typeof obj.response === 'string') return obj.response
-
-  if (Array.isArray(obj.content)) {
-    return obj.content
-      .map(c => (typeof c === 'string' ? c : c.text || c.content || ''))
-      .filter(Boolean)
-      .join('\n')
-  }
-
-  const parts = []
-  for (const [k, v] of Object.entries(obj)) {
-    if (k === 'type' || k === 'id' || k === 'timestamp' || k === 'role') continue
-    if (typeof v === 'string' && v.length > 0) parts.push(`${k}: ${v}`)
-    else if (typeof v === 'object' && v !== null) {
-      const t = extractTextFromJsonValue(v)
-      if (t) parts.push(t)
-    }
-  }
-  return parts.join('\n')
-}
-
-function readTextFile(filePath) {
-  // Read as UTF-8 and strip a leading BOM so JSON.parse and previews work
-  // on files saved with a byte-order mark (common on Windows).
-  return fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '')
-}
-
-function extractTextFromJsonFile(filePath) {
+// IPC: List sessions (optionally filtered by source path)
+ipcMain.handle('session:list', async (event, sourcePath) => {
   try {
-    const content = readTextFile(filePath)
-    try {
-      const obj = JSON.parse(content)
-      return extractTextFromJsonValue(obj)
-    } catch (e) {
-      return extractTextFromJsonl(content)
+    let sessions
+    if (sourcePath) {
+      const normalized = path.resolve(sourcePath)
+      const all = engine.listSessions()
+      sessions = all.filter(s => s.source_path === normalized)
+    } else {
+      sessions = engine.listSessions()
     }
-  } catch (e) {
-    return ''
-  }
-}
-
-function extractTextFromSqlite(dbPath) {
-  try {
-    const db = new Database(dbPath, { readonly: true })
-    const texts = []
-
-    const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-      .all()
-      .map(r => r.name)
-
-    for (const table of tables) {
-      try {
-        const columns = db
-          .prepare(`PRAGMA table_info(${table})`)
-          .all()
-          .map(c => c.name)
-
-        const textCols = columns.filter(c =>
-          /content|message|text|body|prompt|response|title|summary/i.test(c)
-        )
-
-        if (textCols.length === 0) continue
-
-        const idCol = columns.find(c => /id|session|thread/i.test(c)) || columns[0]
-        const query = `SELECT ${[idCol, ...textCols].join(', ')} FROM ${table} LIMIT 1000`
-        const rows = db.prepare(query).all()
-
-        for (const row of rows) {
-          const parts = []
-          for (const col of textCols) {
-            if (row[col] && typeof row[col] === 'string') {
-              parts.push(row[col])
-            }
-          }
-          if (parts.length > 0) texts.push(parts.join('\n'))
-        }
-      } catch (e) {
-        // skip
-      }
-    }
-
-    db.close()
-    return texts.join('\n')
-  } catch (e) {
-    return ''
-  }
-}
-
-function readSessionFileContent(filePath) {
-  const ext = path.extname(filePath).toLowerCase()
-  try {
-    switch (ext) {
-      case '.jsonl':
-        return extractTextFromJsonl(fs.readFileSync(filePath, 'utf8'))
-      case '.json':
-        return extractTextFromJsonFile(filePath)
-      case '.db':
-      case '.sqlite':
-        return extractTextFromSqlite(filePath)
-      case '.md':
-      case '.txt':
-        return fs.readFileSync(filePath, 'utf8')
-      default:
-        return fs.readFileSync(filePath, 'utf8')
-    }
-  } catch (e) {
-    return `[Error reading ${filePath}: ${e.message}]`
-  }
-}
-
-// Recursively collect all session files under a directory
-function collectSessionFiles(dirPath) {
-  const results = []
-  try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
-    for (const entry of entries) {
-      const fullPath = path.join(dirPath, entry.name)
-      if (entry.isDirectory()) {
-        results.push(...collectSessionFiles(fullPath))
-      } else if (entry.isFile()) {
-        const ext = path.extname(entry.name).toLowerCase()
-        if (SUPPORTED_EXTS.includes(ext)) {
-          results.push(fullPath)
-        }
-      }
-    }
-  } catch (e) {
-    // skip inaccessible directories
-  }
-  return results
-}
-
-function getSessionPreview(filePath, ext) {
-  try {
-    if (ext === '.jsonl') {
-      const content = readTextFile(filePath)
-      const firstLine = content.split('\n')[0]
-      return firstLine ? firstLine.substring(0, 120) : path.basename(filePath)
-    }
-    if (ext === '.json') {
-      const content = readTextFile(filePath)
-      try {
-        const obj = JSON.parse(content)
-        return (obj.title || obj.label || obj.session_id || path.basename(filePath)).toString().substring(0, 120)
-      } catch (e) {
-        return path.basename(filePath)
-      }
-    }
-    if (ext === '.db' || ext === '.sqlite') {
-      return `SQLite database: ${path.basename(filePath)}`
-    }
-    const content = readTextFile(filePath)
-    const firstLine = content.split('\n')[0].trim()
-    return firstLine || content.substring(0, 100)
-  } catch (e) {
-    return path.basename(filePath)
-  }
-}
-
-// IPC: List session files in a directory
-ipcMain.handle('session:list', async (event, dirPath) => {
-  try {
-    const filePaths = collectSessionFiles(dirPath)
-    const sessions = []
-
-    for (const filePath of filePaths) {
-      const stat = fs.statSync(filePath)
-      const ext = path.extname(filePath).toLowerCase()
-      const label = path.basename(filePath, ext)
-      const preview = getSessionPreview(filePath, ext).substring(0, 120)
-
-      sessions.push({
-        id: filePath,
-        label: label,
-        preview: preview,
-        harness: path.basename(dirPath),
-        directory: dirPath,
-        modified: stat.mtimeMs,
-        size: stat.size,
-        ext,
-      })
-    }
-
-    sessions.sort((a, b) => b.modified - a.modified)
-    return sessions
+    return sessions.map(s => ({
+      id: s.session_id,
+      session_id: s.session_id,
+      title: s.title,
+      harness: s.harness,
+      source_path: s.source_path,
+      file_path: s.file_path,
+      created_at: s.created_at,
+      indexed_at: s.indexed_at,
+    }))
   } catch (e) {
     console.error('Failed to list sessions:', e.message)
     return []
   }
 })
 
-// IPC: List all sessions across all harness directories
+// IPC: List all sessions across all sources
 ipcMain.handle('session:listAll', async () => {
-  const allSessions = []
-  const seen = new Set()
-  for (const dir of config.harnessDirectories) {
-    try {
-      const sessions = await sessionListHandler(dir)
-      for (const s of sessions) {
-        if (!seen.has(s.id)) {
-          seen.add(s.id)
-          allSessions.push(s)
-        }
-      }
-    } catch (e) {
-      console.error(`Failed to list sessions in ${dir}:`, e.message)
-    }
-  }
-  allSessions.sort((a, b) => b.modified - a.modified)
-  return allSessions
-})
-
-async function sessionListHandler(dirPath) {
   try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
-    const sessions = []
-
-    for (const entry of entries) {
-      if (!entry.isFile()) continue
-      const ext = path.extname(entry.name).toLowerCase()
-      if (!SUPPORTED_EXTS.includes(ext)) continue
-
-      const filePath = path.join(dirPath, entry.name)
-      const stat = fs.statSync(filePath)
-      const label = path.basename(entry.name, ext)
-      const preview = getSessionPreview(filePath, ext).substring(0, 120)
-
-      sessions.push({
-        id: filePath,
-        label: label,
-        preview: preview,
-        harness: path.basename(dirPath),
-        directory: dirPath,
-        modified: stat.mtimeMs,
-        size: stat.size,
-        ext,
-      })
-    }
-
-    sessions.sort((a, b) => b.modified - a.modified)
-    return sessions
+    const sessions = engine.listSessions()
+    return sessions.map(s => ({
+      id: s.session_id,
+      session_id: s.session_id,
+      title: s.title,
+      harness: s.harness,
+      source_path: s.source_path,
+      file_path: s.file_path,
+      created_at: s.created_at,
+      indexed_at: s.indexed_at,
+    }))
   } catch (e) {
+    console.error('Failed to list all sessions:', e.message)
     return []
   }
-}
+})
 
-// IPC: Read a single session file content
-ipcMain.handle('session:read', async (event, filePath) => {
+// IPC: Read a single session by session ID
+ipcMain.handle('session:read', async (event, sessionId) => {
   try {
-    const stat = fs.statSync(filePath)
-    const content = readSessionFileContent(filePath)
+    const session = engine.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
     return {
-      path: filePath,
-      content: content,
-      modified: stat.mtimeMs,
-      size: stat.size
+      session_id: session.session_id,
+      title: session.title,
+      harness: session.harness,
+      source_path: session.source_path,
+      file_path: session.file_path,
+      created_at: session.created_at,
+      indexed_at: session.indexed_at,
+      messages: session.messages || [],
     }
   } catch (e) {
-    throw new Error(`Failed to read ${filePath}: ${e.message}`)
+    throw new Error(`Failed to read session ${sessionId}: ${e.message}`)
   }
 })
 
 // IPC: Autodetect harness directories in common locations
 ipcMain.handle('harness:autodetect', async () => {
-  const fs = require('fs')
-  const path = require('path')
-
   const commonRoots = [
     'C:\\Users',
     'C:\\Users\\Public',
@@ -464,24 +274,69 @@ ipcMain.handle('harness:autodetect', async () => {
   return detected
 })
 
-// IPC: Search across all sessions (titles and contents)
-// Runs in a Worker thread so the main process (and UI) stays responsive while
-// scanning potentially thousands of session files. Files are read in chunks for
-// large plain-text sessions to avoid loading whole files into memory.
+// IPC: Index a source explicitly
+ipcMain.handle('source:index', async (event, sourceId) => {
+  try {
+    const result = engine.indexSource(sourceId)
+    return result
+  } catch (e) {
+    console.error('Failed to index source:', e.message)
+    throw e
+  }
+})
+
+// IPC: Index all sources
+ipcMain.handle('source:indexAll', async (event, options = {}) => {
+  try {
+    return engine.indexAllSources(options)
+  } catch (e) {
+    console.error('Failed to index all sources:', e.message)
+    throw e
+  }
+})
+
+// IPC: Incremental indexing (check for new/modified/deleted)
+ipcMain.handle('source:incrementalIndex', async (event, options = {}) => {
+  try {
+    return engine.incrementalIndex(options)
+  } catch (e) {
+    console.error('Failed incremental indexing:', e.message)
+    throw e
+  }
+})
+
+// IPC: Search across all sessions (FTS5 via IndexingEngine)
+// Synchronous search — no worker needed since FTS5 queries are fast.
 ipcMain.handle('session:search', async (event, query, options = {}) => {
-  const batchSize = options.batchSize || config.batchSize || 10
-  const dirs = config.harnessDirectories.slice()
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(path.join(__dirname, 'search-worker.js'), {
-      workerData: { query, directories: dirs, batchSize },
+  try {
+    const results = engine.search(query, {
+      harness: options.harness || undefined,
+      role: options.role || undefined,
+      limit: options.limit || 50,
+      excerptLength: options.excerptLength || 200,
     })
-    worker.on('message', (message) => {
-      if (message.error) {
-        reject(new Error(message.error))
-      } else {
-        resolve(message.results || [])
-      }
-    })
-    worker.on('error', (err) => reject(err))
-  })
+    return results.map(r => ({
+      id: r.session_id,
+      session_id: r.session_id,
+      title: r.title,
+      harness: r.harness,
+      source_path: r.source_path,
+      file_path: r.file_path,
+      created_at: r.created_at,
+      rank: r.rank,
+      excerpt: r.excerpt,
+    }))
+  } catch (e) {
+    console.error('Search failed:', e.message)
+    throw e
+  }
+})
+
+// IPC: Get context around a message
+ipcMain.handle('session:getContext', async (event, sessionId, messageIndex, before = 5, after = 5) => {
+  try {
+    return engine.getContext(sessionId, messageIndex, before, after)
+  } catch (e) {
+    throw new Error(`Failed to get context: ${e.message}`)
+  }
 })

@@ -5,16 +5,23 @@ contextBridge.exposeInMainWorld('locateAPI', {
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (updates) => ipcRenderer.invoke('config:set', updates),
 
-  // Harnesses
-  addHarness: (dirPath) => ipcRenderer.invoke('harness:add', dirPath),
+  // Harnesses / sources
+  addHarness: (dirPath, harness) => ipcRenderer.invoke('harness:add', dirPath, harness),
   removeHarness: (dirPath) => ipcRenderer.invoke('harness:remove', dirPath),
   listHarnesses: () => ipcRenderer.invoke('harness:list'),
   autodetectHarnesses: () => ipcRenderer.invoke('harness:autodetect'),
   openFolderDialog: () => ipcRenderer.invoke('dialog:openFolder'),
 
+  // Source indexing
+  indexSource: (sourceId) => ipcRenderer.invoke('source:index', sourceId),
+  indexAllSources: (options) => ipcRenderer.invoke('source:indexAll', options),
+  incrementalIndex: (options) => ipcRenderer.invoke('source:incrementalIndex', options),
+
   // Sessions
-  listSessions: (dirPath) => ipcRenderer.invoke('session:list', dirPath),
+  listSessions: (sourcePath) => ipcRenderer.invoke('session:list', sourcePath),
   listAllSessions: () => ipcRenderer.invoke('session:listAll'),
-  readSession: (filePath) => ipcRenderer.invoke('session:read', filePath),
-  searchSessions: (query, options) => ipcRenderer.invoke('session:search', query, options)
+  readSession: (sessionId) => ipcRenderer.invoke('session:read', sessionId),
+  searchSessions: (query, options) => ipcRenderer.invoke('session:search', query, options),
+  getContext: (sessionId, messageIndex, before, after) =>
+    ipcRenderer.invoke('session:getContext', sessionId, messageIndex, before, after),
 })

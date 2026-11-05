@@ -1,29 +1,34 @@
 #!/usr/bin/env node
 /**
  * Locate MCP Server
- * 
- * Exposes the Locate app's session archive search functionality as MCP tools
- * so that AI assistants (Claude, Cline, Opencode, GitHub Copilot, etc.) can
- * search archived sessions without reading interface or wasting tokens.
- * 
+ *
+ * Exposes the Locate search engine as MCP tools so AI assistants can search
+ * archived sessions without reading interface or wasting tokens.
+ *
+ * Uses the core IndexingEngine (SQLite FTS5) for all search and retrieval.
+ *
  * Usage: node mcp-server.js
  * Transport: stdio (JSON-RPC 2.0)
  */
 
-const { Server } = require('@modelcontextprotocol/sdk/server/index.js')
-const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js')
-const {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} = require('@modelcontextprotocol/sdk/types.js')
 const path = require('path')
 const fs = require('fs')
-const Database = require('better-sqlite3')
+const os = require('os')
+const { IndexingEngine } = require('./packages/core/index')
 
 // ── Configuration ──────────────────────────────────────────────────────────
+
 const CONFIG_FILE = path.join(
-  process.env.APPDATA || process.env.HOME || require('os').homedir(),
+  process.env.APPDATA || process.env.HOME || os.homedir(),
   'locate-mcp-config.json'
+)
+
+// Shared index database path — same location used by the desktop app so both
+// components share a single index.
+const INDEX_DB_PATH = path.join(
+  process.env.APPDATA || process.env.HOME || os.homedir(),
+  'locate',
+  'locate-index.db'
 )
 
 const DEFAULT_CONFIG = {
@@ -45,6 +50,8 @@ function loadConfig() {
 
 function saveConfig() {
   try {
+    const dir = path.dirname(CONFIG_FILE)
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8')
   } catch (e) {
     console.error('[locate-mcp] Failed to save config:', e.message)
@@ -53,330 +60,23 @@ function saveConfig() {
 
 loadConfig()
 
-// ── Session reading helpers ────────────────────────────────────────────────
+// ── Core Indexing Engine ───────────────────────────────────────────────────
 
-const SUPPORTED_EXTS = ['.md', '.txt', '.json', '.jsonl', '.db', '.sqlite']
-
-function readTextFile(filePath) {
-  // Read as UTF-8 and strip a leading BOM so JSON.parse and previews work
-  // on files saved with a byte-order mark (common on Windows).
-  return fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '')
-}
-
-function extractTextFromJsonl(content) {
-  // JSONL: each line is a JSON object. Extract text from message/content fields.
-  const lines = content.split('\n').filter(l => l.trim())
-  const texts = []
-  for (const line of lines) {
-    try {
-      const obj = JSON.parse(line)
-      const text = extractTextFromJson(obj)
-      if (text) texts.push(text)
-    } catch (e) {
-      // Not valid JSON, treat as plain text
-      if (line.trim()) texts.push(line.trim())
-    }
-  }
-  return texts.join('\n')
-}
-
-function extractTextFromJson(obj) {
-  if (typeof obj === 'string') return obj
-  if (obj === null || obj === undefined) return ''
-
-  // Common message/content fields
-  if (typeof obj.content === 'string') return obj.content
-  if (typeof obj.message === 'string') return obj.message
-  if (typeof obj.text === 'string') return obj.text
-  if (typeof obj.prompt === 'string') return obj.prompt
-  if (typeof obj.response === 'string') return obj.response
-
-  // Array of content blocks (Pi, Claude style)
-  if (Array.isArray(obj.content)) {
-    return obj.content
-      .map(c => (typeof c === 'string' ? c : c.text || c.content || ''))
-      .filter(Boolean)
-      .join('\n')
-  }
-
-  // Recurse into object values
-  const parts = []
-  for (const [k, v] of Object.entries(obj)) {
-    if (k === 'type' || k === 'id' || k === 'timestamp' || k === 'role') continue
-    if (typeof v === 'string' && v.length > 0) parts.push(`${k}: ${v}`)
-    else if (typeof v === 'object' && v !== null) {
-      const t = extractTextFromJson(v)
-      if (t) parts.push(t)
-    }
-  }
-  return parts.join('\n')
-}
-
-function extractTextFromJsonFile(filePath) {
-  try {
-    const content = readTextFile(filePath)
-    // Try parsing as single JSON object
-    try {
-      const obj = JSON.parse(content)
-      return extractTextFromJson(obj)
-    } catch (e) {
-      // Not a single JSON object, try JSONL
-      return extractTextFromJsonl(content)
-    }
-  } catch (e) {
-    return ''
-  }
-}
-
-// Columns that usually hold session text. Kept broad so unknown harness
-// schemas (e.g. Codex "objective", T3 "goal") are still picked up.
-const SQL_TEXT_COL_KEYWORDS = /content|message|text|body|prompt|response|title|summary|objective|goal|description|note|answer|output/i
-
-function pickTextColumns(columns) {
-  const keywordCols = columns.filter((c) => SQL_TEXT_COL_KEYWORDS.test(c))
-  if (keywordCols.length > 0) return keywordCols
-  // Fallback: any non-id/timestamp column is a candidate text column.
-  return columns.filter(
-    (c) => !/^(id|session_id|thread_id|created_at|updated_at|timestamp|type|role)$/i.test(c)
-  )
-}
-
-function extractTextFromSqlite(dbPath) {
-  // Try to open as SQLite and extract session text
-  try {
-    const db = new Database(dbPath, { readonly: true })
-    const texts = []
-
-    // List all tables
-    const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-      .all()
-      .map(r => r.name)
-
-    for (const table of tables) {
-      try {
-        const columns = db
-          .prepare(`PRAGMA table_info(${table})`)
-          .all()
-          .map(c => c.name)
-
-        const textCols = pickTextColumns(columns)
-        if (textCols.length === 0) continue
-
-        const idCol = columns.find(c => /id|session|thread/i.test(c)) || columns[0]
-        const query = `SELECT ${[idCol, ...textCols].join(', ')} FROM ${table} LIMIT 1000`
-        const rows = db.prepare(query).all()
-
-        for (const row of rows) {
-          const parts = []
-          for (const col of textCols) {
-            if (row[col] && typeof row[col] === 'string') {
-              parts.push(row[col])
-            }
-          }
-          if (parts.length > 0) {
-            texts.push(parts.join('\n'))
-          }
-        }
-      } catch (e) {
-        // Skip tables that can't be read
-      }
-    }
-
-    db.close()
-    return texts.join('\n')
-  } catch (e) {
-    return ''
-  }
-}
-
-function readSessionFile(filePath) {
-  const ext = path.extname(filePath).toLowerCase()
-  try {
-    switch (ext) {
-      case '.jsonl':
-        return extractTextFromJsonl(readTextFile(filePath))
-      case '.json':
-        return extractTextFromJsonFile(filePath)
-      case '.db':
-      case '.sqlite':
-        return extractTextFromSqlite(filePath)
-      case '.md':
-      case '.txt':
-        return readTextFile(filePath)
-      default:
-        return readTextFile(filePath)
-    }
-  } catch (e) {
-    return `[Error reading ${filePath}: ${e.message}]`
-  }
-}
-
-function collectSessionFiles(dirPath) {
-  // Recursively collect session files (with supported extensions) under dirPath.
-  const files = []
-  try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
-    for (const entry of entries) {
-      const fullPath = path.join(dirPath, entry.name)
-      if (entry.isDirectory()) {
-        files.push(...collectSessionFiles(fullPath))
-      } else if (entry.isFile()) {
-        const ext = path.extname(entry.name).toLowerCase()
-        if (SUPPORTED_EXTS.includes(ext)) {
-          files.push({ name: entry.name, fullPath })
-        }
-      }
-    }
-  } catch (e) {
-    // Directory may not exist or be inaccessible
-  }
-  return files
-}
-
-function listSessionsInDir(dirPath) {
-  const sessions = []
-  try {
-    const files = collectSessionFiles(dirPath)
-    for (const { name: entryName, fullPath: filePath } of files) {
-      const ext = path.extname(entryName).toLowerCase()
-      const stat = fs.statSync(filePath)
-      const label = path.basename(entryName, ext)
-
-      // Read a small preview
-      let preview = ''
-      try {
-        if (ext === '.jsonl') {
-          const content = readTextFile(filePath)
-          const firstLine = content.split('\n')[0]
-          preview = firstLine ? firstLine.substring(0, 120) : entryName
-        } else if (ext === '.json') {
-          const content = readTextFile(filePath)
-          try {
-            const obj = JSON.parse(content)
-            preview = (obj.title || obj.label || obj.session_id || entryName).toString().substring(0, 120)
-          } catch (e) {
-            preview = entryName
-          }
-        } else if (ext === '.db' || ext === '.sqlite') {
-          preview = 'SQLite database: ' + entryName
-        } else {
-          const content = readTextFile(filePath)
-          const firstLine = content.split('\n')[0]
-          preview = firstLine ? firstLine.substring(0, 120) : entryName
-        }
-      } catch (e) {
-        preview = entryName
-      }
-
-      sessions.push({
-        id: filePath,
-        label: label,
-        preview: preview,
-        harness: path.basename(dirPath),
-        directory: dirPath,
-        modified: stat.mtimeMs,
-        size: stat.size,
-        ext,
-      })
-    }
-    sessions.sort((a, b) => b.modified - a.modified)
-  } catch (e) {
-    // Directory may not exist
-  }
-  return sessions
-}
-
-function listAllSessions() {
-  const all = []
-  const seen = new Set()
-  for (const dir of config.harnessDirectories) {
-    for (const s of listSessionsInDir(dir)) {
-      if (!seen.has(s.id)) {
-        seen.add(s.id)
-        all.push(s)
-      }
-    }
-  }
-  all.sort((a, b) => b.modified - a.modified)
-  return all
-}
-
-function searchSessions(query, options = {}) {
-  const batchSize = options.batchSize || config.batchSize || 10
-  const queryLower = query.toLowerCase()
-  const results = []
-
-  for (const dir of config.harnessDirectories) {
-    try {
-      const files = collectSessionFiles(dir)
-
-      for (let i = 0; i < files.length; i += batchSize) {
-        const batch = files.slice(i, i + batchSize)
-        for (const { name: entryName, fullPath: filePath } of batch) {
-          try {
-            const content = readSessionFile(filePath)
-            const label = path.basename(entryName, path.extname(entryName))
-            const labelMatch = label.toLowerCase().includes(queryLower)
-            const contentMatch = content.toLowerCase().includes(queryLower)
-
-            if (!labelMatch && !contentMatch) continue
-
-            let context = ''
-            if (contentMatch) {
-              const idx = content.toLowerCase().indexOf(queryLower)
-              const start = Math.max(0, idx - 100)
-              const end = Math.min(content.length, idx + query.length + 100)
-              context = content.substring(start, end).replace(/\n/g, ' ')
-            }
-
-            results.push({
-              id: filePath,
-              label,
-              harness: path.basename(dir),
-              directory: dir,
-              labelMatch,
-              contentMatch,
-              context,
-              score: (labelMatch ? 2 : 0) + (contentMatch ? 1 : 0),
-            })
-          } catch (e) {
-            // Skip unreadable files
-          }
-        }
-      }
-    } catch (e) {
-      // Skip inaccessible directories
-    }
-  }
-
-  // Deduplicate by file path so overlapping or repeated harness directories
-  // never produce duplicate results.
-  const seen = new Set()
-  const deduped = []
-  for (const r of results) {
-    if (!seen.has(r.id)) {
-      seen.add(r.id)
-      deduped.push(r)
-    }
-  }
-
-  deduped.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
-  return deduped
-}
+const engine = new IndexingEngine(INDEX_DB_PATH)
+engine.open()
 
 // ── MCP Server ─────────────────────────────────────────────────────────────
 
+const { Server } = require('@modelcontextprotocol/sdk/server/index.js')
+const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js')
+const {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} = require('@modelcontextprotocol/sdk/types.js')
+
 const server = new Server(
-  {
-    name: 'locate',
-    version: '1.0.0',
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
+  { name: 'locate', version: '1.0.0' },
+  { capabilities: { tools: {} } }
 )
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -384,49 +84,104 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'locate_search',
-        description: 'Search across all archived sessions in the Locate app. Scans titles and contents of all sessions across configured harnesses. Returns ranked results with context snippets.',
+        description: 'Search across all indexed archived sessions using full-text search (FTS5). Returns ranked results with excerpts, session metadata, and source references.',
         inputSchema: {
           type: 'object',
           properties: {
             query: {
               type: 'string',
-              description: 'Search query - free text to match against session titles and contents',
+              description: 'Search query - free text matched against session titles and message content',
             },
-            batchSize: {
+            harness: {
+              type: 'string',
+              description: 'Optional harness filter (e.g. "GitHub Copilot", "Cline", "Codex")',
+            },
+            role: {
+              type: 'string',
+              description: 'Optional message role filter (e.g. "user", "assistant")',
+            },
+            limit: {
               type: 'number',
-              description: 'Number of sessions to scan in parallel per group (5, 10, or 20). Default: 10',
+              description: 'Maximum number of results to return (default: 50)',
               minimum: 1,
-              maximum: 100,
+              maximum: 200,
+            },
+            excerptLength: {
+              type: 'number',
+              description: 'Maximum excerpt length in characters (default: 200)',
+              minimum: 50,
+              maximum: 2000,
             },
           },
           required: ['query'],
         },
       },
       {
-        name: 'locate_read_session',
-        description: 'Read the full content of a specific archived session by its file path.',
+        name: 'locate_get_session',
+        description: 'Retrieve a complete indexed session by session ID, including all messages.',
         inputSchema: {
           type: 'object',
           properties: {
-            filePath: {
+            sessionId: {
               type: 'string',
-              description: 'Full file path of the session to read',
+              description: 'The session ID to retrieve',
             },
           },
-          required: ['filePath'],
+          required: ['sessionId'],
+        },
+      },
+      {
+        name: 'locate_get_context',
+        description: 'Retrieve messages surrounding a specific message index within a session.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sessionId: {
+              type: 'string',
+              description: 'The session ID',
+            },
+            messageIndex: {
+              type: 'number',
+              description: 'The center message index',
+            },
+            before: {
+              type: 'number',
+              description: 'Number of preceding messages (default: 5)',
+              minimum: 0,
+              maximum: 50,
+            },
+            after: {
+              type: 'number',
+              description: 'Number of following messages (default: 5)',
+              minimum: 0,
+              maximum: 50,
+            },
+          },
+          required: ['sessionId', 'messageIndex'],
         },
       },
       {
         name: 'locate_list_sessions',
-        description: 'List all archived sessions across all configured harness directories.',
+        description: 'List all indexed sessions across all registered harnesses.',
         inputSchema: {
           type: 'object',
-          properties: {},
+          properties: {
+            harness: {
+              type: 'string',
+              description: 'Optional harness filter',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum sessions to return (default: 100)',
+              minimum: 1,
+              maximum: 500,
+            },
+          },
         },
       },
       {
         name: 'locate_list_harnesses',
-        description: 'List all configured harness directories in the Locate app.',
+        description: 'List all registered harness directories and their indexing status.',
         inputSchema: {
           type: 'object',
           properties: {},
@@ -434,16 +189,50 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'locate_add_harness',
-        description: 'Add a new harness directory to scan for archived sessions.',
+        description: 'Register a new directory as a harness source for indexing.',
         inputSchema: {
           type: 'object',
           properties: {
             dirPath: {
               type: 'string',
-              description: 'Absolute path to the harness directory containing session files',
+              description: 'Absolute path to the harness directory containing session archives',
+            },
+            harness: {
+              type: 'string',
+              description: 'Optional harness name override (auto-detected if omitted)',
             },
           },
           required: ['dirPath'],
+        },
+      },
+      {
+        name: 'locate_index_source',
+        description: 'Index a specific registered harness directory. Scans session files and adds them to the FTS5 search index.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            dirPath: {
+              type: 'string',
+              description: 'Absolute path of the harness directory to index',
+            },
+          },
+          required: ['dirPath'],
+        },
+      },
+      {
+        name: 'locate_index_all',
+        description: 'Index all registered harness directories that have not yet been indexed.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'locate_status',
+        description: 'Return indexing health, source counts, session counts, and engine availability.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
         },
       },
     ],
@@ -456,7 +245,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case 'locate_search': {
-        const results = searchSessions(args.query, { batchSize: args.batchSize })
+        const results = engine.search(args.query, {
+          harness: args.harness || undefined,
+          role: args.role || undefined,
+          limit: args.limit || 50,
+          excerptLength: args.excerptLength || 200,
+        })
         return {
           content: [
             {
@@ -465,7 +259,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 {
                   query: args.query,
                   totalResults: results.length,
-                  results: results.slice(0, 50),
+                  results: results.map(r => ({
+                    id: r.session_id,
+                    session_id: r.session_id,
+                    title: r.title,
+                    harness: r.harness,
+                    source_path: r.source_path,
+                    file_path: r.file_path,
+                    created_at: r.created_at,
+                    rank: r.rank,
+                    excerpt: r.excerpt,
+                  })),
                 },
                 null,
                 2
@@ -475,19 +279,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case 'locate_read_session': {
-        const content = readSessionFile(args.filePath)
-        const stat = fs.statSync(args.filePath)
+      case 'locate_get_session': {
+        const session = engine.getSession(args.sessionId)
+        if (!session) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: 'Session not found' }, null, 2) }],
+            isError: true,
+          }
+        }
         return {
           content: [
             {
               type: 'text',
               text: JSON.stringify(
                 {
-                  path: args.filePath,
-                  content,
-                  modified: stat.mtimeMs,
-                  size: stat.size,
+                  session_id: session.session_id,
+                  title: session.title,
+                  harness: session.harness,
+                  source_path: session.source_path,
+                  file_path: session.file_path,
+                  created_at: session.created_at,
+                  indexed_at: session.indexed_at,
+                  messages: session.messages || [],
                 },
                 null,
                 2
@@ -497,8 +310,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
+      case 'locate_get_context': {
+        const ctx = engine.getContext(args.sessionId, args.messageIndex, args.before || 5, args.after || 5)
+        if (!ctx) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: 'Session not found' }, null, 2) }],
+            isError: true,
+          }
+        }
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(ctx, null, 2),
+            },
+          ],
+        }
+      }
+
       case 'locate_list_sessions': {
-        const sessions = listAllSessions()
+        const sessions = engine.listSessions({
+          harness: args.harness || undefined,
+          limit: args.limit || 100,
+        })
         return {
           content: [
             {
@@ -507,11 +341,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 {
                   totalSessions: sessions.length,
                   sessions: sessions.map(s => ({
-                    id: s.id,
-                    label: s.label,
+                    id: s.session_id,
+                    session_id: s.session_id,
+                    title: s.title,
                     harness: s.harness,
-                    preview: s.preview,
-                    modified: s.modified,
+                    source_path: s.source_path,
+                    file_path: s.file_path,
+                    created_at: s.created_at,
+                    indexed_at: s.indexed_at,
                   })),
                 },
                 null,
@@ -523,13 +360,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'locate_list_harnesses': {
+        const sources = engine.listSources()
         return {
           content: [
             {
               type: 'text',
               text: JSON.stringify(
                 {
-                  harnesses: config.harnessDirectories,
+                  harnesses: sources.map(s => ({
+                    id: s.id,
+                    path: s.path,
+                    name: s.name,
+                    format: s.format,
+                    harness: s.harness,
+                    session_count: s.session_count,
+                    indexed_count: s.indexed_count,
+                    last_scan: s.last_scan,
+                    status: s.status,
+                    error: s.error,
+                  })),
                 },
                 null,
                 2
@@ -540,21 +389,129 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'locate_add_harness': {
-        // path.resolve() (not normalize) collapses trailing separators, '.', '..'
-        // and relative segments so equivalent Windows paths dedupe correctly.
-        const normalized = path.resolve(args.dirPath)
-        if (!config.harnessDirectories.includes(normalized)) {
-          config.harnessDirectories.push(normalized)
-          saveConfig()
+        try {
+          const sourceId = engine.addSource(args.dirPath, args.harness || undefined)
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    sourceId,
+                    path: path.resolve(args.dirPath),
+                    added: args.dirPath,
+                  status: 'pending',
+                  note: 'Source registered. Call locate_index_source or locate_index_all to index sessions.',
+                },
+                null,
+                2
+              ),
+            },
+          ],
         }
-              return {
+      } catch (e) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ error: e.message }, null, 2) }],
+          isError: true,
+        }
+      }
+      }
+
+      case 'locate_index_source': {
+      try {
+        const normalized = path.resolve(args.dirPath)
+        const sources = engine.listSources()
+        const source = sources.find(s => path.resolve(s.path) === normalized)
+        if (!source) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: 'Source not registered: ' + args.dirPath }, null, 2) }],
+            isError: true,
+          }
+        }
+        const result = engine.indexSource(source.id)
+        return {
           content: [
             {
               type: 'text',
               text: JSON.stringify(
                 {
-                  harnesses: config.harnessDirectories,
-                  added: args.dirPath,
+                  path: normalized,
+                  sourceId: source.id,
+                  indexed: result.indexed || 0,
+                  skipped: result.skipped || 0,
+                  total: result.total || 0,
+                  status: result.status || 'done',
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        }
+      } catch (e) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ error: e.message }, null, 2) }],
+          isError: true,
+        }
+      }
+      }
+
+      case 'locate_index_all': {
+      try {
+        const result = engine.indexAllSources()
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  indexed: result.indexed || 0,
+                  skipped: result.skipped || 0,
+                  total: result.total || 0,
+                  sources: result.sources || [],
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        }
+      } catch (e) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ error: e.message }, null, 2) }],
+          isError: true,
+        }
+      }
+      }
+
+      case 'locate_status': {
+        const sources = engine.listSources()
+        const sessionCount = engine.countSessions()
+        const indexedSources = sources.filter(s => s.status === 'indexed').length
+        const errorSources = sources.filter(s => s.status === 'error').length
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  engine: 'IndexingEngine (SQLite FTS5)',
+                  database: INDEX_DB_PATH,
+                  initialized: engine.initialized,
+                  totalSources: sources.length,
+                  indexedSources,
+                  pendingSources: sources.length - indexedSources - errorSources,
+                  errorSources,
+                  totalSessions: sessionCount,
+                  sources: sources.map(s => ({
+                    path: s.path,
+                    harness: s.harness,
+                    status: s.status,
+                    session_count: s.session_count,
+                    indexed_count: s.indexed_count,
+                    last_scan: s.last_scan,
+                    error: s.error,
+                  })),
                 },
                 null,
                 2
