@@ -102,4 +102,5 @@ node test/indexing.test.js
 
 ## License
 
-MIT
+GNU GENERAL PUBLIC LICENSE
+
