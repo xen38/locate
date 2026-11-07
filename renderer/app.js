@@ -200,8 +200,9 @@ document.addEventListener('DOMContentLoaded', () => {
     harnesses.forEach((h) => {
       const item = document.createElement('div')
       item.className = 'harness-item'
+      const label = h.name || h.harness || h.path
       item.innerHTML = `
-        <span>${escapeHtml(h)}</span>
+        <span>${escapeHtml(label)}</span>
         <span class="remove" title="Remove">&#215;</span>
       `
       item.querySelector('.remove').addEventListener('click', async (e) => {

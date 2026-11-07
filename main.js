@@ -247,7 +247,7 @@ ipcMain.handle('harness:autodetect', async () => {
   ]
 
   const detected = []
-  const userRoots = ['C:\\Users']
+  const userRoots = ['C:\\Users', 'K:\\Users']
 
   // Add common drive roots
   for (const d of ['D:\\', 'E:\\', 'F:\\']) {
