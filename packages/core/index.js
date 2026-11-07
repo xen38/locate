@@ -458,6 +458,13 @@ class IndexingEngine {
     this.db.prepare('DELETE FROM sources WHERE path = ?').run(normalized)
   }
 
+  // Remove a single session from the index (undoable via re-index/refresh)
+  removeSession(sessionId) {
+    const safeId = String(sessionId).replace(/'/g, "''")
+    this.db.exec(`DELETE FROM messages WHERE session_id = '${safeId}'`)
+    this.db.exec(`DELETE FROM sessions WHERE session_id = '${safeId}'`)
+  }
+
   _detectHarness(dirPath) {
     return this.registry.detectHarness(dirPath)
   }
