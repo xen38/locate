@@ -63,7 +63,7 @@ loadConfig()
 // ── Core Indexing Engine ───────────────────────────────────────────────────
 
 const engine = new IndexingEngine(INDEX_DB_PATH)
-engine.open()
+engine.open().catch(e => console.error('[locate-mcp] Failed to open index:', e))
 
 // ── MCP Server ─────────────────────────────────────────────────────────────
 

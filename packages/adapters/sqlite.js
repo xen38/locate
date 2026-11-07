@@ -11,8 +11,14 @@
 
 const path = require('path')
 const fs = require('fs')
-const Database = require('better-sqlite3')
+const initSqlJs = require('sql.js')
+const { wrapDb } = require('../core/db-compat')
 const { BaseAdapter } = require('./base')
+
+let SQL = null
+const sqlPromise = initSqlJs({
+  locateFile: file => path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist', file)
+}).then(sql => { SQL = sql })
 
 class SQLiteAdapter extends BaseAdapter {
   constructor(options = {}) {
@@ -71,11 +77,13 @@ class SQLiteAdapter extends BaseAdapter {
    * Parse all sessions from a SQLite database file.
    * Returns an array of { sessionId, title, createdAt, messages, filePath }.
    */
-  parseAllSessions(filePath) {
+  async parseAllSessions(filePath) {
     const sessions = []
     let db
     try {
-      db = new Database(filePath, { readonly: true })
+      await sqlPromise
+      const buffer = fs.readFileSync(filePath)
+      db = wrapDb(new SQL.Database(buffer))
 
       // Find tables that look like session tables
       const tables = db

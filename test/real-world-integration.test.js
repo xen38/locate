@@ -42,7 +42,7 @@ async function main() {
   if (fs.existsSync(TEST_DB + '-shm')) fs.unlinkSync(TEST_DB + '-shm')
 
   const engine = new IndexingEngine(TEST_DB)
-  engine.open()
+  await engine.open()
 
   // ── Step 1: Add all harness sources ──
   console.log('\nStep 1: Adding harness sources...')
@@ -56,7 +56,7 @@ async function main() {
 
   // ── Step 2: Index all sources ──
   console.log('\nStep 2: Indexing all sources...')
-  const allResult = engine.indexAllSources()
+  const allResult = await engine.indexAllSources()
   console.log(`  Index result: indexed=${allResult.indexed}, skipped=${allResult.skipped}, total=${allResult.total}`)
 
   const sourcesAfter = engine.listSources()
@@ -146,7 +146,7 @@ async function main() {
   }
 
   // Re-index to confirm no modification
-  engine.indexAllSources()
+  await engine.indexAllSources()
 
   const hashesAfter = {}
   for (const f of archiveFiles) {
@@ -162,7 +162,7 @@ async function main() {
   }
   assert(integrityOk, 'All original archive files remain unchanged after indexing')
 
-  engine.db.close()
+  engine.close()
 
   // Clean up test database
   if (fs.existsSync(TEST_DB)) fs.unlinkSync(TEST_DB)

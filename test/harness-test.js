@@ -1,6 +1,12 @@
 const path = require('path')
 const fs = require('fs')
-const Database = require('better-sqlite3')
+const initSqlJs = require('sql.js')
+const { wrapDb } = require('../packages/core/db-compat')
+
+let SQL = null
+const sqlPromise = initSqlJs({
+  locateFile: file => path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist', file)
+}).then(sql => { SQL = sql })
 
 // Reuse the extraction functions from main.js
 function extractTextFromJsonl(content) {
@@ -47,9 +53,11 @@ function extractTextFromJsonValue(obj) {
   return parts.join('\n')
 }
 
-function extractTextFromSqlite(dbPath) {
+async function extractTextFromSqlite(dbPath) {
   try {
-    const db = new Database(dbPath, { readonly: true })
+    await sqlPromise
+    const buffer = fs.readFileSync(dbPath)
+    const db = wrapDb(new SQL.Database(buffer))
     const texts = []
 
     const tables = db
@@ -92,6 +100,33 @@ function extractTextFromSqlite(dbPath) {
     return texts.join('\n')
   } catch (e) {
     return `[SQLite error: ${e.message}]`
+  }
+}
+
+function readSessionFileContent(filePath) {
+  const ext = path.extname(filePath).toLowerCase()
+  try {
+    switch (ext) {
+      case '.jsonl':
+        return extractTextFromJsonl(fs.readFileSync(filePath, 'utf8'))
+      case '.json':
+        try {
+          const obj = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+          return extractTextFromJsonValue(obj)
+        } catch (e) {
+          return extractTextFromJsonl(fs.readFileSync(filePath, 'utf8'))
+        }
+      case '.db':
+      case '.sqlite':
+        return extractTextFromSqlite(filePath)
+      case '.md':
+      case '.txt':
+        return fs.readFileSync(filePath, 'utf8')
+      default:
+        return fs.readFileSync(filePath, 'utf8')
+    }
+  } catch (e) {
+    return `[Error reading ${filePath}: ${e.message}]`
   }
 }
 

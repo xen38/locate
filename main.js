@@ -46,7 +46,7 @@ loadConfig()
 // ── Core Indexing Engine (shared with MCP server) ──────────────────────────
 
 const engine = new IndexingEngine(INDEX_DB_PATH)
-engine.open()
+engine.open().catch(e => console.error('Failed to open index:', e))
 
 let mainWindow = null
 
