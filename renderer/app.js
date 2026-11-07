@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+const setup = () => {
   const locateAPI = window.locateAPI
 
   // DOM elements
@@ -221,35 +221,37 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function init() {
-    const config = await locateAPI.getConfig()
-    batchSize = config.batchSize || 10
-    settingBatchSize.value = String(batchSize)
+    try {
+      const config = await locateAPI.getConfig()
+      batchSize = config.batchSize || 10
+      settingBatchSize.value = String(batchSize)
 
-    // Auto-detect harnesses on first run if none configured
-    if (!config.harnessDirectories || config.harnessDirectories.length === 0) {
-      await scanAndAutodetectHarnesses()
-    } else {
-      // Ensure all configured sources are registered in the engine (idempotent)
-      // and indexed so sessions appear in the list. The index DB may be empty
-      // even when config holds directories from a previous run.
-      for (const dir of config.harnessDirectories) {
-        try {
-          await locateAPI.addHarness(dir)
-        } catch (e) {
-          // Ignore individual add failures; continue with remaining sources
-          console.error('Failed to add harness:', dir, e.message)
+      // Auto-detect harnesses on first run if none configured
+      if (!config.harnessDirectories || config.harnessDirectories.length === 0) {
+        await scanAndAutodetectHarnesses()
+      } else {
+        // Ensure all configured sources are registered in the engine (idempotent)
+        for (const dir of config.harnessDirectories) {
+          try {
+            await locateAPI.addHarness(dir)
+          } catch (e) {
+            console.error('Failed to add harness:', dir, e.message)
+          }
         }
-      }
 
-      // Index all sources so sessions appear in the list
-      try {
-        await locateAPI.indexAllSources()
-      } catch (e) {
-        console.error('Indexing failed:', e.message)
-      }
+        // Index all sources so sessions appear in the list
+        try {
+          await locateAPI.indexAllSources()
+        } catch (e) {
+          console.error('Indexing failed:', e.message)
+        }
 
-      // Load sessions from all configured harnesses
-      await loadSessions()
+        // Load sessions from all configured harnesses
+        await loadSessions()
+      }
+    } catch (e) {
+      console.error('Init failed:', e)
+      alert('Init failed: ' + e.message)
     }
   }
 
@@ -450,7 +452,11 @@ document.addEventListener('DOMContentLoaded', () => {
     })
   }
 
-  // Helpers
+  // Initialize
+  init()
+}
+
+// Helpers
   function escapeHtml(text) {
     if (!text) return ''
     const div = document.createElement('div')
@@ -458,6 +464,8 @@ document.addEventListener('DOMContentLoaded', () => {
     return div.innerHTML
   }
 
-  // Initialize
-  init()
-})
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setup)
+  } else {
+    setup()
+  }

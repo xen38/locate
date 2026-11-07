@@ -46,11 +46,11 @@ loadConfig()
 // ── Core Indexing Engine (shared with MCP server) ──────────────────────────
 
 const engine = new IndexingEngine(INDEX_DB_PATH)
-engine.open().catch(e => console.error('Failed to open index:', e))
 
 let mainWindow = null
 
 function createWindow() {
+  console.log('Creating window...')
   mainWindow = new BrowserWindow({
     width: config.windowBounds.width || 1200,
     height: config.windowBounds.height || 800,
@@ -65,7 +65,12 @@ function createWindow() {
     backgroundColor: '#000000'
   })
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  console.log('Window created, loading index.html...')
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html')).then(() => {
+    console.log('index.html loaded')
+  }).catch(e => {
+    console.error('Failed to load index.html:', e)
+  })
 
   // Remove default Electron menu bar (File, Edit, View, Window, Help)
   Menu.setApplicationMenu(null)
@@ -83,7 +88,13 @@ function createWindow() {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    await engine.open()
+    console.log('Index engine opened successfully')
+  } catch (e) {
+    console.error('Failed to open index engine:', e)
+  }
   createWindow()
 
   app.on('activate', () => {
