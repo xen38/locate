@@ -113,7 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const item = document.createElement('div')
       item.className = `session-item${selectedSessionId === s.id ? ' selected' : ''}`
       item.innerHTML = `
-        <div class="label">${escapeHtml(s.label)}</div>
+        <div class="label">${escapeHtml(s.title)}</div>
         <div class="harness">${escapeHtml(s.harness)}</div>
       `
       item.addEventListener('click', () => {
@@ -131,11 +131,12 @@ document.addEventListener('DOMContentLoaded', () => {
     sessionView.classList.remove('hidden')
 
     metaHarness.textContent = session.harness
-    metaPath.textContent = session.directory
+    metaPath.textContent = session.source_path
 
     try {
       const data = await locateAPI.readSession(session.id)
-      sessionContent.textContent = data.content
+      const messages = data.messages || []
+      sessionContent.textContent = messages.map(m => m.content).join('\n')
     } catch (e) {
       sessionContent.textContent = `Error loading session: ${e.message}`
     }
@@ -199,8 +200,9 @@ document.addEventListener('DOMContentLoaded', () => {
     harnesses.forEach((h) => {
       const item = document.createElement('div')
       item.className = 'harness-item'
+      const label = h.name || h.harness || h.path
       item.innerHTML = `
-        <span>${escapeHtml(h)}</span>
+        <span>${escapeHtml(label)}</span>
         <span class="remove" title="Remove">&#215;</span>
       `
       item.querySelector('.remove').addEventListener('click', async (e) => {

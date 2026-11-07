@@ -1,25 +1,30 @@
 /**
  * Locate Core Indexing Engine
  *
- * SQLite FTS5-based full-text search index for archived coding sessions.
+ * SQLite-based full-text search index for archived coding sessions.
+ * Uses LIKE-based search (sql.js does not include FTS5).
  * Reads original session files read-only; never copies or modifies them.
  *
  * Schema:
- *   sources       - registered harness directories
- *   sessions      - session records (metadata + file fingerprint)
- *   messages      - individual messages (role, timestamp, content, tool calls)
- *   sessions_fts  - FTS5 virtual table over session content
- *   messages_fts  - FTS5 virtual table over message content
+ *   sources   - registered harness directories
+ *   sessions  - session records (metadata + content)
+ *   messages  - individual messages (role, timestamp, content, tool calls)
  */
 
 const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
-const Database = require('better-sqlite3')
+const initSqlJs = require('sql.js')
+const { wrapDb } = require('./db-compat')
 const { AdapterRegistry } = require('../adapters/registry')
 
 // Supported session file extensions
 const SUPPORTED_EXTS = new Set(['.md', '.txt', '.json', '.jsonl', '.db', '.sqlite'])
+
+let SQL = null
+const sqlPromise = initSqlJs({
+  locateFile: file => path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist', file)
+}).then(sql => { SQL = sql })
 
 class IndexingEngine {
   constructor(dbPath) {
@@ -31,13 +36,23 @@ class IndexingEngine {
 
   // ── Initialization ────────────────────────────────────────────────────
 
-  open() {
+  async open() {
+    await sqlPromise
     const dir = path.dirname(this.dbPath)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    this.db = new Database(this.dbPath)
-    this.db.pragma('journal_mode = WAL')
-    this.db.pragma('synchronous = NORMAL')
+
+    let buffer = null
+    if (fs.existsSync(this.dbPath)) {
+      buffer = fs.readFileSync(this.dbPath)
+    }
+    this.db = wrapDb(new SQL.Database(buffer))
+    this.db.exec('PRAGMA journal_mode = WAL')
+    this.db.exec('PRAGMA synchronous = NORMAL')
     this._createSchema()
+    // Persist initial empty DB to disk so the file exists after open()
+    if (!fs.existsSync(this.dbPath)) {
+      fs.writeFileSync(this.dbPath, this.db.export())
+    }
     this.initialized = true
     return this
   }
@@ -85,63 +100,18 @@ class IndexingEngine {
         FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
       );
 
-      CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(
-        session_id, title, content, harness,
-        content='sessions', content_rowid='id'
-      );
-
-      CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-        session_id, role, content, timestamp,
-        content='messages', content_rowid='id'
-      );
-
       CREATE INDEX IF NOT EXISTS idx_sessions_harness ON sessions(harness);
       CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions(source_path);
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(role);
       CREATE INDEX IF NOT EXISTS idx_sessions_file ON sessions(file_path);
     `)
-
-    // Triggers to keep FTS tables in sync with content tables
-    this.db.exec(`
-      CREATE TRIGGER IF NOT EXISTS sessions_ai AFTER INSERT ON sessions BEGIN
-        INSERT INTO sessions_fts(rowid, session_id, title, content, harness)
-        VALUES (new.id, new.session_id, new.title, new.content, new.harness);
-      END;
-
-      CREATE TRIGGER IF NOT EXISTS sessions_ad AFTER DELETE ON sessions BEGIN
-        INSERT INTO sessions_fts(sessions_fts, rowid, session_id, title, content, harness)
-        VALUES ('delete', old.id, old.session_id, old.title, old.content, old.harness);
-      END;
-
-      CREATE TRIGGER IF NOT EXISTS sessions_au AFTER UPDATE ON sessions BEGIN
-        INSERT INTO sessions_fts(sessions_fts, rowid, session_id, title, content, harness)
-        VALUES ('delete', old.id, old.session_id, old.title, old.content, old.harness);
-        INSERT INTO sessions_fts(rowid, session_id, title, content, harness)
-        VALUES (new.id, new.session_id, new.title, new.content, new.harness);
-      END;
-
-      CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
-        INSERT INTO messages_fts(rowid, session_id, role, content, timestamp)
-        VALUES (new.id, new.session_id, new.role, new.content, new.timestamp);
-      END;
-
-      CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-        INSERT INTO messages_fts(messages_fts, rowid, session_id, role, content, timestamp)
-        VALUES ('delete', old.id, old.session_id, old.role, old.content, old.timestamp);
-      END;
-
-      CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
-        INSERT INTO messages_fts(messages_fts, rowid, session_id, role, content, timestamp)
-        VALUES ('delete', old.id, old.session_id, old.role, old.content, old.timestamp);
-        INSERT INTO messages_fts(rowid, session_id, role, content, timestamp)
-        VALUES (new.id, new.session_id, new.role, new.content, new.timestamp);
-      END;
-    `)
   }
 
   close() {
     if (this.db) {
+      const data = this.db.export()
+      fs.writeFileSync(this.dbPath, data)
       this.db.close()
       this.db = null
       this.initialized = false
@@ -227,9 +197,11 @@ class IndexingEngine {
     }
   }
 
-  static extractTextFromSqlite(dbPath) {
+  static async extractTextFromSqlite(dbPath) {
     try {
-      const db = new Database(dbPath, { readonly: true })
+      await sqlPromise
+      const buffer = fs.readFileSync(dbPath)
+      const db = new SQL.Database(buffer)
       const texts = []
       const tables = db
         .prepare("SELECT name FROM sqlite_master WHERE type='table'")
@@ -266,7 +238,7 @@ class IndexingEngine {
     }
   }
 
-  static readSessionFileContent(filePath) {
+  static async readSessionFileContent(filePath) {
     const ext = path.extname(filePath).toLowerCase()
     try {
       switch (ext) {
@@ -276,7 +248,7 @@ class IndexingEngine {
           return IndexingEngine.extractTextFromJsonFile(filePath)
         case '.db':
         case '.sqlite':
-          return IndexingEngine.extractTextFromSqlite(filePath)
+          return await IndexingEngine.extractTextFromSqlite(filePath)
         case '.md':
         case '.txt':
           return IndexingEngine.readTextFile(filePath)
@@ -290,7 +262,7 @@ class IndexingEngine {
 
   // ── Session parsing into messages ────────────────────────────────────
 
-  static parseMessages(filePath, sessionId) {
+  static async parseMessages(filePath, sessionId) {
     const ext = path.extname(filePath).toLowerCase()
     const messages = []
 
@@ -372,7 +344,9 @@ class IndexingEngine {
           })
         })
       } else if (ext === '.db' || ext === '.sqlite') {
-        const db = new Database(filePath, { readonly: true })
+        await sqlPromise
+        const buffer = fs.readFileSync(filePath)
+        const db = new SQL.Database(buffer)
         const tables = db
           .prepare("SELECT name FROM sqlite_master WHERE type='table'")
           .all()
@@ -505,7 +479,7 @@ class IndexingEngine {
 
   // ── Indexing ──────────────────────────────────────────────────────────
 
-  indexSource(sourceId, options = {}) {
+  async indexSource(sourceId, options = {}) {
     const source = this.db
       .prepare('SELECT * FROM sources WHERE id = ?')
       .get(sourceId)
@@ -519,11 +493,9 @@ class IndexingEngine {
     const discovered = this.registry.discover(source.path)
     const files = discovered.map(d => d.filePath)
 
-    const upsertSession = this.db.prepare(`
-      INSERT INTO sessions (session_id, title, harness, source_path, file_path, file_ext,
+    const upsertSession = this.db.prepare(`INSERT INTO sessions (session_id, title, harness, source_path, file_path, file_ext,
                             file_mtime, file_size, file_hash, created_at, content_hash, content)
-      VALUES (@session_id, @title, @harness, @source_path, @file_path, @file_ext,
-              @file_mtime, @file_size, @file_hash, @created_at, @content_hash, @content)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         title = excluded.title,
         harness = excluded.harness,
@@ -536,69 +508,72 @@ class IndexingEngine {
         created_at = excluded.created_at,
         indexed_at = datetime('now'),
         content_hash = excluded.content_hash,
-        content = excluded.content
-    `);
+        content = excluded.content`)
 
-    const insertMessage = this.db.prepare(`
-      INSERT INTO messages (session_id, message_index, role, timestamp, content, tool_calls)
-      VALUES (@session_id, @message_index, @role, @timestamp, @content, @tool_calls)
-    `)
+    const insertMessage = this.db.prepare(`INSERT INTO messages (session_id, message_index, role, timestamp, content, tool_calls)
+      VALUES (?, ?, ?, ?, ?, ?)`)
 
-    const fileToAdapter = new Map()
-    for (const d of discovered) fileToAdapter.set(d.filePath, d.adapter)
+    // Phase 1: discover sessions from files (async, outside transaction)
+    const work = []
+    for (let i = 0; i < files.length; i += batchSize) {
+      const batch = files.slice(i, i + batchSize)
+      for (const filePath of batch) {
+        const fp = this._fingerprint(filePath)
+        const existing = this.db
+          .prepare('SELECT file_hash, file_mtime, file_size FROM sessions WHERE file_path = ?')
+          .get(filePath)
 
-    const tx = this.db.transaction(() => {
-      for (let i = 0; i < files.length; i += batchSize) {
-        const batch = files.slice(i, i + batchSize)
-        for (const filePath of batch) {
-          const fp = this._fingerprint(filePath)
-          const existing = this.db
-            .prepare('SELECT file_hash, file_mtime, file_size FROM sessions WHERE file_path = ?')
-            .get(filePath)
-
-          if (existing && existing.file_hash === fp.hash && existing.file_mtime === fp.mtime && existing.file_size === fp.size) {
-            skipped++
-            continue
-          }
-
-          const sessions = this._getFileSessions(filePath)
-
-          if (sessions.length === 0) continue
-
-          for (const s of sessions) {
-            const contentHash = crypto.createHash('sha256').update(s.content).digest('hex')
-
-            upsertSession.run({
-              session_id: s.sessionId,
-              title: s.title,
-              harness: source.harness,
-              source_path: source.path,
-              file_path: filePath,
-              file_ext: path.extname(filePath).toLowerCase(),
-              file_mtime: fp.mtime,
-              file_size: fp.size,
-              file_hash: fp.hash,
-              created_at: s.createdAt || new Date(fp.mtime).toISOString(),
-              content_hash: contentHash,
-              content: s.content
-            })
-
-            // Parse and insert messages (replace existing)
-            this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(s.sessionId)
-            for (const m of s.messages) {
-              insertMessage.run({
-                session_id: s.sessionId,
-                message_index: m.message_index ?? m.index ?? 0,
-                role: m.role,
-                timestamp: m.timestamp || '',
-                content: m.content || '',
-                tool_calls: m.tool_calls ? JSON.stringify(m.tool_calls) : null
-              })
-            }
-
-            indexed++
-          }
+        if (existing && existing.file_hash === fp.hash && existing.file_mtime === fp.mtime && existing.file_size === fp.size) {
+          skipped++
+          continue
         }
+
+        const sessions = await this._getFileSessions(filePath)
+        if (sessions.length === 0) continue
+
+        for (const s of sessions) {
+          const contentHash = crypto.createHash('sha256').update(s.content).digest('hex')
+          work.push({
+            fp,
+            session: s,
+            contentHash,
+            filePath
+          })
+        }
+      }
+    }
+
+    // Phase 2: write all to DB inside a transaction
+    const tx = this.db.transaction(() => {
+      for (const w of work) {
+        const { fp, session, contentHash, filePath } = w
+        upsertSession.run([
+          session.sessionId,
+          session.title,
+          source.harness,
+          source.path,
+          filePath,
+          path.extname(filePath).toLowerCase(),
+          fp.mtime,
+          fp.size,
+          fp.hash,
+          session.createdAt || new Date(fp.mtime).toISOString(),
+          contentHash,
+          session.content
+        ])
+
+        this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(session.sessionId)
+        for (const m of session.messages) {
+          insertMessage.run([
+            session.sessionId,
+            m.message_index ?? m.index ?? 0,
+            m.role,
+            m.timestamp || '',
+            m.content || '',
+            m.tool_calls ? JSON.stringify(m.tool_calls) : null
+          ])
+        }
+        indexed++
       }
     })
 
@@ -624,12 +599,12 @@ class IndexingEngine {
     }
   }
 
-  indexAllSources(options = {}) {
+  async indexAllSources(options = {}) {
     const sources = this.listSources()
     const results = []
     for (const source of sources) {
       try {
-        const result = this.indexSource(source.id, options)
+        const result = await this.indexSource(source.id, options)
         results.push(result)
       } catch (e) {
         results.push({ sourceId: source.id, sourcePath: source.path, error: e.message })
@@ -640,12 +615,12 @@ class IndexingEngine {
 
   // ── Incremental indexing ─────────────────────────────────────────────
 
-  incrementalIndex(options = {}) {
+  async incrementalIndex(options = {}) {
     const sources = this.listSources()
     const results = []
     for (const source of sources) {
       try {
-        const result = this._incrementalIndexSource(source.id, options)
+        const result = await this._incrementalIndexSource(source.id, options)
         results.push(result)
       } catch (e) {
         results.push({ sourceId: source.id, sourcePath: source.path, error: e.message })
@@ -654,7 +629,7 @@ class IndexingEngine {
     return results
   }
 
-  _incrementalIndexSource(sourceId, options = {}) {
+  async _incrementalIndexSource(sourceId, options = {}) {
     const source = this.db
       .prepare('SELECT * FROM sources WHERE id = ?')
       .get(sourceId)
@@ -675,11 +650,9 @@ class IndexingEngine {
         .map(r => r.file_path)
     )
 
-    const upsertSession = this.db.prepare(`
-      INSERT INTO sessions (session_id, title, harness, source_path, file_path, file_ext,
+    const upsertSession = this.db.prepare(`INSERT INTO sessions (session_id, title, harness, source_path, file_path, file_ext,
                             file_mtime, file_size, file_hash, created_at, content_hash, content)
-      VALUES (@session_id, @title, @harness, @source_path, @file_path, @file_ext,
-              @file_mtime, @file_size, @file_hash, @created_at, @content_hash, @content)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         title = excluded.title,
         harness = excluded.harness,
@@ -692,72 +665,75 @@ class IndexingEngine {
         created_at = excluded.created_at,
         indexed_at = datetime('now'),
         content_hash = excluded.content_hash,
-        content = excluded.content
-    `)
+        content = excluded.content`)
 
-    const insertMessage = this.db.prepare(`
-      INSERT INTO messages (session_id, message_index, role, timestamp, content, tool_calls)
-      VALUES (@session_id, @message_index, @role, @timestamp, @content, @tool_calls)
-    `)
+    const insertMessage = this.db.prepare(`INSERT INTO messages (session_id, message_index, role, timestamp, content, tool_calls)
+      VALUES (?, ?, ?, ?, ?, ?)`)
 
-    const fileToAdapter = new Map()
-    for (const d of discovered) fileToAdapter.set(d.filePath, d.adapter)
+    // Phase 1: discover sessions from files (async, outside transaction)
+    const work = []
+    for (let i = 0; i < files.length; i += batchSize) {
+      const batch = files.slice(i, i + batchSize)
+      for (const filePath of batch) {
+        const fp = this._fingerprint(filePath)
+        const existing = this.db
+          .prepare('SELECT file_hash, file_mtime, file_size FROM sessions WHERE file_path = ?')
+          .get(filePath)
 
-    const tx = this.db.transaction(() => {
-      // Process new/modified files
-      for (let i = 0; i < files.length; i += batchSize) {
-        const batch = files.slice(i, i + batchSize)
-        for (const filePath of batch) {
-          const fp = this._fingerprint(filePath)
-          const existing = this.db
-            .prepare('SELECT file_hash, file_mtime, file_size FROM sessions WHERE file_path = ?')
-            .get(filePath)
-
-          if (existing && existing.file_hash === fp.hash && existing.file_mtime === fp.mtime && existing.file_size === fp.size) {
-            skipped++
-            indexedPaths.delete(filePath)
-            continue
-          }
-
-          const sessions = this._getFileSessions(filePath)
-
-          if (sessions.length === 0) continue
-
-          for (const s of sessions) {
-            const contentHash = crypto.createHash('sha256').update(s.content).digest('hex')
-
-            upsertSession.run({
-              session_id: s.sessionId,
-              title: s.title,
-              harness: source.harness,
-              source_path: source.path,
-              file_path: filePath,
-              file_ext: path.extname(filePath).toLowerCase(),
-              file_mtime: fp.mtime,
-              file_size: fp.size,
-              file_hash: fp.hash,
-              created_at: s.createdAt || new Date(fp.mtime).toISOString(),
-              content_hash: contentHash,
-              content: s.content
-            })
-
-            this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(s.sessionId)
-            for (const m of s.messages) {
-              insertMessage.run({
-                session_id: s.sessionId,
-                message_index: m.message_index ?? m.index ?? 0,
-                role: m.role,
-                timestamp: m.timestamp || '',
-                content: m.content || '',
-                tool_calls: m.tool_calls ? JSON.stringify(m.tool_calls) : null
-              })
-            }
-
-            indexed++
-          }
-
+        if (existing && existing.file_hash === fp.hash && existing.file_mtime === fp.mtime && existing.file_size === fp.size) {
+          skipped++
           indexedPaths.delete(filePath)
+          continue
         }
+
+        const sessions = await this._getFileSessions(filePath)
+        if (sessions.length === 0) continue
+
+        for (const s of sessions) {
+          const contentHash = crypto.createHash('sha256').update(s.content).digest('hex')
+          work.push({
+            fp,
+            session: s,
+            contentHash,
+            filePath
+          })
+        }
+
+        indexedPaths.delete(filePath)
+      }
+    }
+
+    // Phase 2: write all to DB inside a transaction
+    const tx = this.db.transaction(() => {
+      for (const w of work) {
+        const { fp, session, contentHash, filePath } = w
+        upsertSession.run([
+          session.sessionId,
+          session.title,
+          source.harness,
+          source.path,
+          filePath,
+          path.extname(filePath).toLowerCase(),
+          fp.mtime,
+          fp.size,
+          fp.hash,
+          session.createdAt || new Date(fp.mtime).toISOString(),
+          contentHash,
+          session.content
+        ])
+
+        this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(session.sessionId)
+        for (const m of session.messages) {
+          insertMessage.run([
+            session.sessionId,
+            m.message_index ?? m.index ?? 0,
+            m.role,
+            m.timestamp || '',
+            m.content || '',
+            m.tool_calls ? JSON.stringify(m.tool_calls) : null
+          ])
+        }
+        indexed++
       }
 
       // Remove deleted files (and all their sessions)
@@ -803,18 +779,19 @@ class IndexingEngine {
    * Returns an array of { sessionId, title, createdAt, messages, content, filePath }.
    * Falls back to static parsing if no adapter matches.
    */
-  _getFileSessions(filePath) {
+  async _getFileSessions(filePath) {
     const ext = path.extname(filePath).toLowerCase()
     const adapter = this.registry.findAdapterForFile(filePath)
 
     if (adapter) {
       if (typeof adapter.parseAllSessions === 'function') {
-        return adapter.parseAllSessions(filePath).map(s => ({
+        const sessions = await adapter.parseAllSessions(filePath)
+        return sessions.map(s => ({
           sessionId: s.sessionId,
           title: s.title,
           createdAt: s.createdAt || '',
           messages: s.messages || [],
-          content: adapter.extractText(filePath) || '',
+          content: s.messages.map(m => m.content).join('\n') || '',
           filePath,
           harness: s.harness || adapter.harness || 'Unknown'
         }))
@@ -835,7 +812,7 @@ class IndexingEngine {
     }
 
     // Fallback: static parsing
-    const content = IndexingEngine.readSessionFileContent(filePath)
+    const content = await IndexingEngine.readSessionFileContent(filePath)
     const sessionId = path.basename(filePath, ext)
     let title = sessionId
     let createdAt = ''
@@ -867,7 +844,7 @@ class IndexingEngine {
       sessionId,
       title,
       createdAt,
-      messages: IndexingEngine.parseMessages(filePath, sessionId),
+      messages: await IndexingEngine.parseMessages(filePath, sessionId),
       content,
       filePath,
       harness: 'Unknown'
@@ -880,22 +857,27 @@ class IndexingEngine {
     const role = options.role || null
     const excerptLength = options.excerptLength || 200
 
+    const like = '%' + query + '%'
+
     let sql = `
       SELECT s.id, s.session_id, s.title, s.harness, s.source_path, s.file_path,
              s.created_at, s.file_mtime,
-             bm25(sessions_fts) AS rank
-      FROM sessions_fts
-      JOIN sessions s ON s.id = sessions_fts.rowid
-      WHERE sessions_fts MATCH ?
+             CASE
+               WHEN s.title LIKE ? THEN 1
+               WHEN s.content LIKE ? THEN 2
+               ELSE 3
+             END AS rank
+      FROM sessions s
+      WHERE (s.title LIKE ? OR s.content LIKE ? OR s.harness LIKE ?)
     `
-    const params = [query]
+    const params = [like, like, like, like, like]
 
     if (harness) {
       sql += ` AND s.harness = ?`
       params.push(harness)
     }
 
-    sql += ` ORDER BY rank`
+    sql += ` ORDER BY rank, s.created_at DESC`
     if (limit) {
       sql += ` LIMIT ?`
       params.push(limit)
@@ -928,16 +910,20 @@ class IndexingEngine {
     const harness = options.harness || null
     const role = options.role || null
 
+    const like = '%' + query + '%'
+
     let sql = `
       SELECT m.id, m.session_id, m.message_index, m.role, m.timestamp, m.content,
              s.title, s.harness, s.file_path,
-             bm25(messages_fts) AS rank
-      FROM messages_fts
-      JOIN messages m ON m.id = messages_fts.rowid
+             CASE
+               WHEN m.content LIKE ? THEN 1
+               ELSE 2
+             END AS rank
+      FROM messages m
       JOIN sessions s ON s.session_id = m.session_id
-      WHERE messages_fts MATCH ?
+      WHERE m.content LIKE ?
     `
-    const params = [query]
+    const params = [like, like]
 
     if (harness) {
       sql += ` AND s.harness = ?`
@@ -948,8 +934,11 @@ class IndexingEngine {
       params.push(role)
     }
 
-    sql += ` ORDER BY rank LIMIT ?`
-    params.push(limit)
+    sql += ` ORDER BY rank, m.message_index`
+    if (limit) {
+      sql += ` LIMIT ?`
+      params.push(limit)
+    }
 
     return this.db.prepare(sql).all(params)
   }

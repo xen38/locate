@@ -46,7 +46,7 @@ loadConfig()
 // ── Core Indexing Engine (shared with MCP server) ──────────────────────────
 
 const engine = new IndexingEngine(INDEX_DB_PATH)
-engine.open()
+engine.open().catch(e => console.error('Failed to open index:', e))
 
 let mainWindow = null
 
@@ -238,32 +238,43 @@ ipcMain.handle('session:read', async (event, sessionId) => {
 
 // IPC: Autodetect harness directories in common locations
 ipcMain.handle('harness:autodetect', async () => {
-  const commonRoots = [
-    'C:\\Users',
-    'C:\\Users\\Public',
-    'D:\\',
-    'E:\\',
-    'F:\\'
-  ]
+  const fsExtra = require('fs')
 
-  const keywords = [
-    'session', 'harness', 'copilot', 'cursor', 'cline', 'windsurf',
-    'allai', 'midas', 'ucos', 'locate', 'archive', 'chat', 'conversation',
-    't3', 'pi', 'codex', 'opencode', 'claude', 'continue', 'zed', 'roo',
-    'aider', 'devin'
+  const knownHarnessDirs = [
+    '.copilot', '.codex', '.cursor', '.cline', '.windsurf',
+    '.t3', '.pi', '.opencode', '.claude', '.continue', '.zed',
+    '.roo', '.aider', '.devin'
   ]
 
   const detected = []
+  const userRoots = ['C:\\Users', 'K:\\Users']
 
-  for (const root of commonRoots) {
+  // Add common drive roots
+  for (const d of ['D:\\', 'E:\\', 'F:\\']) {
+    try { if (fsExtra.existsSync(d)) userRoots.push(d) } catch (e) {}
+  }
+
+  for (const root of userRoots) {
     try {
-      if (!fs.existsSync(root)) continue
-      const entries = fs.readdirSync(root, { withFileTypes: true })
+      if (!fsExtra.existsSync(root)) continue
+
+      // Scan immediate subdirectories of root (e.g. C:\Users\luizy)
+      const entries = fsExtra.readdirSync(root, { withFileTypes: true })
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
-        const lower = entry.name.toLowerCase()
-        if (keywords.some(k => lower.includes(k))) {
-          detected.push(path.join(root, entry.name))
+        const userDir = path.join(root, entry.name)
+
+        try {
+          const subEntries = fsExtra.readdirSync(userDir, { withFileTypes: true })
+          for (const sub of subEntries) {
+            if (!sub.isDirectory()) continue
+            const lower = sub.name.toLowerCase()
+            if (knownHarnessDirs.includes(lower)) {
+              detected.push(path.join(userDir, sub.name))
+            }
+          }
+        } catch (e) {
+          // skip inaccessible user dirs
         }
       }
     } catch (e) {
