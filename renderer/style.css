@@ -234,10 +234,33 @@ a { color: #ffffff; }
   padding: 0 16px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   font-size: 13px;
   font-weight: 600;
   color: #cccccc;
   border-bottom: 1px solid #333333;
+}
+
+.refresh-btn {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid #333333;
+  border-radius: 4px;
+  color: #888888;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+
+.refresh-btn:hover {
+  background: #1a1a1a;
+  border-color: #555555;
+  color: #ffffff;
 }
 
 .session-list {

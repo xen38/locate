@@ -114,6 +114,11 @@ ipcMain.handle('harness:add', async (event, dirPath, harness) => {
     if (!fs.existsSync(normalized)) {
       throw new Error(`Directory does not exist: ${normalized}`)
     }
+    // Prevent duplicate sources in the engine
+    const existing = engine.listSources().find(s => s.path === normalized)
+    if (existing) {
+      return { sourceId: existing.id, path: normalized, harnesses: config.harnessDirectories }
+    }
     const sourceId = engine.addSource(normalized, harness || undefined)
     if (!config.harnessDirectories.includes(normalized)) {
       config.harnessDirectories.push(normalized)
@@ -236,10 +241,22 @@ ipcMain.handle('session:read', async (event, sessionId) => {
   }
 })
 
-// IPC: Autodetect harness directories in common locations
-ipcMain.handle('harness:autodetect', async () => {
-  const fsExtra = require('fs')
+// Get all available drive roots on Windows (C: through Z:)
+function getDriveRoots() {
+  const roots = []
+  for (let code = 67; code <= 90; code++) { // C-Z
+    const drive = String.fromCharCode(code) + ':\\'
+    try {
+      if (fsExtra.existsSync(drive)) roots.push(drive)
+    } catch (e) {}
+  }
+  return roots
+}
 
+const fsExtra = require('fs')
+
+// IPC: Autodetect harness directories across all drives
+ipcMain.handle('harness:autodetect', async () => {
   const knownHarnessDirs = [
     '.copilot', '.codex', '.cursor', '.cline', '.windsurf',
     '.t3', '.pi', '.opencode', '.claude', '.continue', '.zed',
@@ -247,22 +264,17 @@ ipcMain.handle('harness:autodetect', async () => {
   ]
 
   const detected = []
-  const userRoots = ['C:\\Users', 'K:\\Users']
+  const driveRoots = getDriveRoots()
 
-  // Add common drive roots
-  for (const d of ['D:\\', 'E:\\', 'F:\\']) {
-    try { if (fsExtra.existsSync(d)) userRoots.push(d) } catch (e) {}
-  }
-
-  for (const root of userRoots) {
+  for (const root of driveRoots) {
+    const usersDir = path.join(root, 'Users')
     try {
-      if (!fsExtra.existsSync(root)) continue
+      if (!fsExtra.existsSync(usersDir)) continue
 
-      // Scan immediate subdirectories of root (e.g. C:\Users\luizy)
-      const entries = fsExtra.readdirSync(root, { withFileTypes: true })
+      const entries = fsExtra.readdirSync(usersDir, { withFileTypes: true })
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
-        const userDir = path.join(root, entry.name)
+        const userDir = path.join(usersDir, entry.name)
 
         try {
           const subEntries = fsExtra.readdirSync(userDir, { withFileTypes: true })
