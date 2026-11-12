@@ -32,6 +32,92 @@ function detectHarness(dirPath) {
   return 'Unknown'
 }
 
+// ── Per-harness session file validators ─────────────────────────────────
+//
+// Each validator returns true only if the given file path is a real session
+// file for that harness. Files that don't match are skipped during discovery.
+
+function makeCursorValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    if (ext !== '.jsonl') return false
+    // Cursor sessions: projects/*/agent-transcripts/<uuid>/<uuid>.jsonl
+    const parts = filePath.split(path.sep)
+    return parts.includes('agent-transcripts')
+  }
+}
+
+function makeClineValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    const base = path.basename(filePath)
+    if (ext !== '.json') return false
+    // Cline sessions: data/sessions/<session_id>/session_<id>.json
+    if (!/^session_/.test(base)) return false
+    const parts = filePath.split(path.sep)
+    return parts.includes('data') && parts.includes('sessions')
+  }
+}
+
+function makeCodexValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    const base = path.basename(filePath)
+    if (ext !== '.sqlite' && ext !== '.db') return false
+    // Codex session databases: goals_1.sqlite, logs_2.sqlite, etc.
+    // Not: auth.json, config.toml, models_cache.json
+    return /^(goals|logs|queue|memories|state)_\d+\.sqlite$/i.test(base)
+  }
+}
+
+function makeCopilotValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    const base = path.basename(filePath)
+    if (ext !== '.db' && ext !== '.sqlite') return false
+    // Copilot sessions: data.db or session-store.db inside chats/
+    if (base !== 'data.db' && base !== 'session-store.db') return false
+    const parts = filePath.split(path.sep)
+    return parts.includes('chats')
+  }
+}
+
+function makePiValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    if (ext !== '.jsonl' && ext !== '.ndjson') return false
+    // Pi sessions: agent/sessions/<workspace>/<timestamp>_<uuid>.jsonl
+    const parts = filePath.split(path.sep)
+    return parts.includes('agent') && parts.includes('sessions')
+  }
+}
+
+function makeT3CodeValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    const base = path.basename(filePath)
+    if (ext !== '.ndjson' && ext !== '.jsonl') return false
+    // T3 Code sessions: userdata/device/agent-device/sessions/<session>/events.ndjson
+    if (base !== 'events.ndjson') return false
+    const parts = filePath.split(path.sep)
+    return parts.includes('agent-device') && parts.includes('sessions')
+  }
+}
+
+function getSessionValidator(harness) {
+  const validators = {
+    Cursor: makeCursorValidator(),
+    Cline: makeClineValidator(),
+    Codex: makeCodexValidator(),
+    'GitHub Copilot': makeCopilotValidator(),
+    Pi: makePiValidator(),
+    'T3 Code': makeT3CodeValidator()
+  }
+  const validator = validators[harness]
+  if (!validator) return () => false // Unknown harness → discover nothing
+  return validator
+}
+
 class AdapterRegistry {
   constructor() {
     this.adapters = []
@@ -64,32 +150,42 @@ class AdapterRegistry {
   }
 
   /**
-   * Discover all session files in a directory, grouped by adapter.
-   * Returns { adapter: [...files], ... } or a flat list with adapter info.
+   * Discover all session files in a directory, filtered per-harness.
+   *
+   * @param {string} dirPath - The source root directory to scan
+   * @param {string|null} harness - Optional harness name. If not provided,
+   *   it is detected from the directory path.
+   * @returns {Array<{filePath, ext, adapter, harness}>}
    */
-  discover(dirPath) {
+  discover(dirPath, harness = null) {
+    if (!harness) harness = detectHarness(dirPath)
+    const isSessionFile = getSessionValidator(harness)
+
     const discovered = []
-    try {
-      const entries = fs.readdirSync(dirPath, { withFileTypes: true })
-      for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name)
-        if (entry.isDirectory()) {
-          discovered.push(...this.discover(fullPath))
-        } else if (entry.isFile()) {
-          const adapter = this.findAdapterForFile(fullPath)
-          if (adapter) {
-            discovered.push({
-              filePath: fullPath,
-              ext: path.extname(entry.name).toLowerCase(),
-              adapter,
-              harness: detectHarness(dirPath)
-            })
+    const walk = (currentDir) => {
+      try {
+        const entries = fs.readdirSync(currentDir, { withFileTypes: true })
+        for (const entry of entries) {
+          const fullPath = path.join(currentDir, entry.name)
+          if (entry.isDirectory()) {
+            walk(fullPath)
+          } else if (entry.isFile()) {
+            const adapter = this.findAdapterForFile(fullPath)
+            if (adapter && isSessionFile(fullPath)) {
+              discovered.push({
+                filePath: fullPath,
+                ext: path.extname(entry.name).toLowerCase(),
+                adapter,
+                harness
+              })
+            }
           }
         }
+      } catch (e) {
+        // skip inaccessible directories
       }
-    } catch (e) {
-      // skip inaccessible directories
     }
+    walk(dirPath)
     return discovered
   }
 

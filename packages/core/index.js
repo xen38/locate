@@ -553,7 +553,7 @@ class IndexingEngine {
     let indexed = 0
     let skipped = 0
 
-    const discovered = this.registry.discover(source.path)
+    const discovered = this.registry.discover(source.path, source.harness)
     const files = discovered.map(d => d.filePath)
 
     const upsertSession = this.db.prepare(`INSERT INTO sessions (session_id, title, harness, source_path, file_path, file_ext,
@@ -653,12 +653,14 @@ class IndexingEngine {
 
         this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(session.sessionId)
         for (const m of session.messages) {
+          const mc = m.content
+          const contentStr = typeof mc === 'string' ? mc : String(mc != null ? mc : '')
           insertMessage.run([
             session.sessionId,
             m.message_index ?? m.index ?? 0,
             m.role,
             m.timestamp || '',
-            m.content || '',
+            contentStr,
             m.tool_calls ? JSON.stringify(m.tool_calls) : null
           ])
         }
@@ -727,7 +729,7 @@ class IndexingEngine {
     if (!source) throw new Error(`Source not found: ${sourceId}`)
 
     const batchSize = options.batchSize || 10
-    const discovered = this.registry.discover(source.path)
+    const discovered = this.registry.discover(source.path, source.harness)
     const files = discovered.map(d => d.filePath)
     let indexed = 0
     let skipped = 0
@@ -877,24 +879,33 @@ class IndexingEngine {
     if (adapter) {
       if (typeof adapter.parseAllSessions === 'function') {
         const sessions = await adapter.parseAllSessions(filePath)
-        return sessions.map(s => ({
-          sessionId: s.sessionId,
-          title: s.title,
-          createdAt: s.createdAt || '',
-          messages: s.messages || [],
-          content: s.messages.map(m => m.content).join('\n') || '',
-          filePath,
-          harness: s.harness || adapter.harness || 'Unknown'
-        }))
+        return sessions.map(s => {
+          const content = (s.messages || [])
+            .map(m => {
+              const c = m.content
+              return typeof c === 'string' ? c : String(c != null ? c : '')
+            })
+            .join('\n')
+          return {
+            sessionId: s.sessionId,
+            title: s.title,
+            createdAt: s.createdAt || '',
+            messages: s.messages || [],
+            content: content || '',
+            filePath,
+            harness: s.harness || adapter.harness || 'Unknown'
+          }
+        })
       }
       const parsed = adapter.parseSession(filePath)
       if (parsed) {
+        const text = adapter.extractText(filePath)
         return [{
           sessionId: parsed.sessionId,
           title: parsed.title,
           createdAt: parsed.createdAt || '',
           messages: parsed.messages || [],
-          content: adapter.extractText(filePath) || '',
+          content: typeof text === 'string' ? text : String(text || ''),
           filePath,
           harness: parsed.harness || adapter.harness || 'Unknown'
         }]

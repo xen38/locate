@@ -17,7 +17,7 @@ class JsonlAdapter extends BaseAdapter {
     super({
       name: options.name || 'JSONL',
       harness: options.harness || 'Unknown',
-      extensions: ['.jsonl'],
+      extensions: ['.jsonl', '.ndjson'],
       ...options
     })
   }
