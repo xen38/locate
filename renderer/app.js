@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+const setup = () => {
   const locateAPI = window.locateAPI
 
   // DOM elements
@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const menuBtn = document.getElementById('menuBtn')
   const menuPanel = document.getElementById('menuPanel')
   const sessionList = document.getElementById('sessionList')
-const btnRefreshSessions = document.getElementById('btnRefreshSessions')
+  const btnRefreshSessions = document.getElementById('btnRefreshSessions')
   const emptyState = document.getElementById('emptyState')
   const sessionView = document.getElementById('sessionView')
   const sessionContent = document.getElementById('sessionContent')
@@ -17,12 +17,28 @@ const btnRefreshSessions = document.getElementById('btnRefreshSessions')
   const btnAddFolder = document.getElementById('btnAddFolder')
   const settingBatchSize = document.getElementById('settingBatchSize')
 
+  // Context menu elements
+  const ctxMenu = document.getElementById('ctxMenu')
+  const ctxDeleteEntry = document.getElementById('ctxDeleteEntry')
+  const ctxDeleteFile = document.getElementById('ctxDeleteFile')
+  const ctxConfirmOverlay = document.getElementById('ctxConfirmOverlay')
+  const ctxConfirmTitle = document.getElementById('ctxConfirmTitle')
+  const ctxConfirmMessage = document.getElementById('ctxConfirmMessage')
+  const ctxConfirmCancel = document.getElementById('ctxConfirmCancel')
+  const ctxConfirmDelete = document.getElementById('ctxConfirmDelete')
+
+  // Close session button
+  const btnCloseSession = document.getElementById('btnCloseSession')
+
   // State
   let allSessions = []
   let selectedSessionId = null
   let isSearching = false
   let menuOpen = false
   let batchSize = 10
+  let ctxTargetSessionId = null
+  let ctxTargetSession = null
+  let confirmResolve = null
 
   // Toggle menu
   function toggleMenu(e) {
@@ -48,28 +64,35 @@ const btnRefreshSessions = document.getElementById('btnRefreshSessions')
       menuOpen = false
       menuPanel.style.display = 'none'
     }
+    // Close context menu when clicking outside
+    if (ctxMenu.style.display === 'block' && !ctxMenu.contains(e.target)) {
+      ctxMenu.style.display = 'none'
+    }
+    // Close confirm overlay when clicking outside
+    if (ctxConfirmOverlay.style.display === 'block' && !ctxConfirmOverlay.contains(e.target)) {
+      hideConfirm()
+    }
   })
 
   // Refresh sessions
-    btnRefreshSessions.addEventListener('click', async () => {
-      await loadSessions()
-    })
+  btnRefreshSessions.addEventListener('click', async () => {
+    await loadSessions()
+  })
 
-    // Add folder
-    btnAddFolder.addEventListener('click', async () => {
-      const dir = await locateAPI.openFolderDialog()
-      if (dir) {
-        await locateAPI.addHarness(dir)
-        renderHarnesses()
-        // Index the new source so sessions appear
-        try {
-          await locateAPI.indexAllSources()
-        } catch (e) {
-          console.error('Indexing failed:', e)
-        }
-        await loadSessions()
+  // Add folder
+  btnAddFolder.addEventListener('click', async () => {
+    const dir = await locateAPI.openFolderDialog()
+    if (dir) {
+      await locateAPI.addHarness(dir)
+      renderHarnesses()
+      try {
+        await locateAPI.indexAllSources()
+      } catch (e) {
+        console.error('Indexing failed:', e)
       }
-    })
+      await loadSessions()
+    }
+  })
 
   // Scan & autodetect harnesses
   btnScanHarnesses.addEventListener('click', async () => {
@@ -98,17 +121,137 @@ const btnRefreshSessions = document.getElementById('btnRefreshSessions')
     }, 150)
   })
 
-  async function init() {
-    const config = await locateAPI.getConfig()
-    batchSize = config.batchSize || 10
-    settingBatchSize.value = String(batchSize)
+  // Close session
+  btnCloseSession.addEventListener('click', (e) => {
+    e.stopPropagation()
+    closeSession()
+  })
 
-    // Auto-detect harnesses on first run if none configured
-    if (!config.harnessDirectories || config.harnessDirectories.length === 0) {
-      await scanAndAutodetectHarnesses()
-    } else {
-      // Load sessions from all configured harnesses
-      await loadSessions()
+  // Context menu: Delete Entry (white text) - removes from list, undoable via refresh
+  ctxDeleteEntry.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    ctxMenu.style.display = 'none'
+    if (!ctxTargetSessionId) return
+    try {
+      await locateAPI.deleteSession(ctxTargetSessionId)
+      // Remove from local list
+      allSessions = allSessions.filter(s => s.id !== ctxTargetSessionId)
+      if (selectedSessionId === ctxTargetSessionId) {
+        closeSession()
+      }
+      renderSessionList(allSessions)
+    } catch (err) {
+      console.error('Delete entry failed:', err)
+      alert('Failed to delete entry: ' + err.message)
+    }
+    ctxTargetSessionId = null
+    ctxTargetSession = null
+  })
+
+  // Context menu: Delete Session File (red text) - confirmation then delete actual file
+  ctxDeleteFile.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    ctxMenu.style.display = 'none'
+    if (!ctxTargetSession) return
+    showConfirm(
+      'Delete Session File?',
+      `This will permanently delete the session file:\n${ctxTargetSession.file_path}\n\nThis cannot be undone.`,
+      async () => {
+        hideConfirm()
+        try {
+          await locateAPI.deleteSessionFile(ctxTargetSessionId)
+          allSessions = allSessions.filter(s => s.id !== ctxTargetSessionId)
+          if (selectedSessionId === ctxTargetSessionId) {
+            closeSession()
+          }
+          renderSessionList(allSessions)
+        } catch (err) {
+          console.error('Delete file failed:', err)
+          alert('Failed to delete session file: ' + err.message)
+        }
+        ctxTargetSessionId = null
+        ctxTargetSession = null
+      }
+    )
+  })
+
+  ctxConfirmCancel.addEventListener('click', () => {
+    hideConfirm()
+    ctxTargetSessionId = null
+    ctxTargetSession = null
+  })
+
+  ctxConfirmDelete.addEventListener('click', async () => {
+    hideConfirm()
+    if (!ctxTargetSessionId) return
+    try {
+      await locateAPI.deleteSessionFile(ctxTargetSessionId)
+      allSessions = allSessions.filter(s => s.id !== ctxTargetSessionId)
+      if (selectedSessionId === ctxTargetSessionId) {
+        closeSession()
+      }
+      renderSessionList(allSessions)
+    } catch (err) {
+      console.error('Delete file failed:', err)
+      alert('Failed to delete session file: ' + err.message)
+    }
+    ctxTargetSessionId = null
+    ctxTargetSession = null
+  })
+
+  function showConfirm(title, message, onConfirm) {
+    ctxConfirmTitle.textContent = title
+    ctxConfirmMessage.textContent = message
+    ctxConfirmOverlay.style.display = 'flex'
+    confirmResolve = onConfirm
+  }
+
+  function hideConfirm() {
+    ctxConfirmOverlay.style.display = 'none'
+    confirmResolve = null
+  }
+
+  function closeSession() {
+    selectedSessionId = null
+    sessionView.classList.add('hidden')
+    sessionView.style.display = 'none'
+    emptyState.classList.remove('hidden')
+    emptyState.style.display = 'flex'
+    renderSessionList(allSessions)
+  }
+
+  async function init() {
+    try {
+      const config = await locateAPI.getConfig()
+      batchSize = config.batchSize || 10
+      settingBatchSize.value = String(batchSize)
+
+      // Auto-detect harnesses on first run if none configured
+      if (!config.harnessDirectories || config.harnessDirectories.length === 0) {
+        await scanAndAutodetectHarnesses()
+      } else {
+        // Ensure all configured sources are registered in the engine (idempotent)
+        for (const dir of config.harnessDirectories) {
+          try {
+            await locateAPI.addHarness(dir)
+          } catch (e) {
+            console.error('Failed to add harness:', dir, e.message)
+          }
+        }
+
+        // Index all sources so sessions appear in the list
+        try {
+          await locateAPI.indexAllSources()
+        } catch (e) {
+          console.error('Indexing failed:', e.message)
+        }
+
+        // Load sessions from all configured harnesses
+        await loadSessions()
+      }
+    } catch (e) {
+      console.error('Init failed:', e)
+      alert('Init failed: ' + e.message)
     }
   }
 
@@ -126,6 +269,11 @@ const btnRefreshSessions = document.getElementById('btnRefreshSessions')
       emptyState.style.display = 'flex'
       sessionView.classList.add('hidden')
       sessionView.style.display = 'none'
+    } else {
+      emptyState.classList.add('hidden')
+      emptyState.style.display = 'none'
+      sessionView.classList.remove('hidden')
+      sessionView.style.display = 'flex'
     }
 
     if (sessions.length === 0) {
@@ -146,6 +294,20 @@ const btnRefreshSessions = document.getElementById('btnRefreshSessions')
         renderSessionList(allSessions)
         loadSessionContent(s)
       })
+
+      // Right-click context menu
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        ctxMenu.style.display = 'none'
+        ctxTargetSessionId = s.id
+        ctxTargetSession = s
+        // Position menu near cursor
+        ctxMenu.style.left = e.clientX + 'px'
+        ctxMenu.style.top = e.clientY + 'px'
+        ctxMenu.style.display = 'block'
+      })
+
       fragment.appendChild(item)
     })
     sessionList.appendChild(fragment)
@@ -163,10 +325,35 @@ const btnRefreshSessions = document.getElementById('btnRefreshSessions')
     try {
       const data = await locateAPI.readSession(session.id)
       const messages = data.messages || []
-      sessionContent.textContent = messages.map(m => m.content).join('\n')
+      renderMessages(messages)
     } catch (e) {
-      sessionContent.textContent = `Error loading session: ${e.message}`
+      sessionContent.innerHTML = `<div style="color:#ff6666;padding:12px">Error loading session: ${escapeHtml(e.message)}</div>`
     }
+  }
+
+  function renderMessages(messages) {
+    if (!messages || messages.length === 0) {
+      sessionContent.innerHTML = '<div style="color:#666;font-style:italic;padding:12px">No messages found.</div>'
+      return
+    }
+
+    const parts = []
+    messages.forEach((m, i) => {
+      const role = (m.role || 'unknown').toLowerCase()
+      const roleColor = role === 'user' ? '#007aff' : role === 'assistant' ? '#00ccff' : '#888888'
+      const roleLabel = role.charAt(0).toUpperCase() + role.slice(1)
+      const ts = m.timestamp ? ` <span style="color:#666;font-size:11px;margin-left:8px">${escapeHtml(m.timestamp)}</span>` : ''
+      const content = escapeHtml(m.content || '')
+      parts.push(`
+        <div class="message" style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #222;">
+          <div style="display:flex;align-items:baseline;margin-bottom:6px;">
+            <span style="color:${roleColor};font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">${roleLabel}</span>${ts}
+          </div>
+          <div style="color:#e0e0e0;line-height:1.6;white-space:pre-wrap;font-size:14px">${content}</div>
+        </div>
+      `)
+    })
+    sessionContent.innerHTML = parts.join('')
   }
 
   async function performSearch(query) {
@@ -265,13 +452,20 @@ const btnRefreshSessions = document.getElementById('btnRefreshSessions')
     })
   }
 
-  // Helpers
+  // Initialize
+  init()
+}
+
+// Helpers
   function escapeHtml(text) {
+    if (!text) return ''
     const div = document.createElement('div')
     div.textContent = text
     return div.innerHTML
   }
 
-  // Initialize
-  init()
-})
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setup)
+  } else {
+    setup()
+  }

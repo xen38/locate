@@ -15,10 +15,40 @@ const initSqlJs = require('sql.js')
 const { wrapDb } = require('../core/db-compat')
 const { BaseAdapter } = require('./base')
 
+// Extract readable text from a JSON value (inline to avoid circular dep with IndexingEngine)
+function extractTextFromJsonValue(obj) {
+  if (typeof obj === 'string') return obj
+  if (obj === null || obj === undefined) return ''
+  if (typeof obj.content === 'string') return obj.content
+  if (typeof obj.message === 'string') return obj.message
+  if (typeof obj.text === 'string') return obj.text
+  if (typeof obj.prompt === 'string') return obj.prompt
+  if (typeof obj.response === 'string') return obj.response
+  if (Array.isArray(obj.content)) {
+    return obj.content
+      .map(c => (typeof c === 'string' ? c : c.text || c.content || ''))
+      .filter(Boolean)
+      .join('\n')
+  }
+  const parts = []
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'type' || k === 'id' || k === 'timestamp' || k === 'role') continue
+    if (typeof v === 'string' && v.length > 0) parts.push(`${k}: ${v}`)
+    else if (typeof v === 'object' && v !== null) {
+      const t = extractTextFromJsonValue(v)
+      if (t) parts.push(t)
+    }
+  }
+  return parts.join('\n')
+}
+
 let SQL = null
 const sqlPromise = initSqlJs({
   locateFile: file => path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist', file)
 }).then(sql => { SQL = sql })
+
+// Yield to the event loop periodically during long row processing
+const sleep = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms))
 
 class SQLiteAdapter extends BaseAdapter {
   constructor(options = {}) {
@@ -130,22 +160,39 @@ class SQLiteAdapter extends BaseAdapter {
 
           let index = 0
           for (const row of rows) {
+            // Yield periodically to keep UI responsive during large DB scans
+            if (index % 50 === 0) await sleep()
             const sessionId = String(row[idCol] || path.basename(filePath, '.db') + '-' + index)
             const title = titleCol ? String(row[titleCol] || sessionId) : sessionId
             const createdAt = tsCol ? String(row[tsCol] || '') : ''
             const content = row[contentCol] || ''
+          
+            // If content looks like JSON, extract meaningful text instead of raw JSON
+            let messageContent = content
+            const trimmed = String(content).trim()
+            if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+              try {
+                const parsed = JSON.parse(trimmed)
+                const extracted = extractTextFromJsonValue(parsed)
+                if (extracted && extracted.trim().length > 0) {
+                  messageContent = extracted
+                }
+              } catch (e) {
+                // Keep raw content if not valid JSON
+              }
+            }
 
-            // Build messages - if there's a role column, treat each row as one message
-            // Otherwise treat the whole content as one message
-            const messages = []
-            if (roleCol) {
-              messages.push({
-                message_index: 0,
-                role: row[roleCol] || 'unknown',
-                timestamp: row[tsCol] || '',
-                content: content,
-                tool_calls: null
-              })
+              // Build messages - if there's a role column, treat each row as one message
+              // Otherwise treat the whole content as one message
+              const messages = []
+              if (roleCol) {
+                messages.push({
+                  message_index: 0,
+                  role: row[roleCol] || 'unknown',
+                  timestamp: row[tsCol] || '',
+                  content: messageContent,
+                  tool_calls: null
+                })
             } else {
               // Split content into paragraphs as pseudo-messages
               const paragraphs = String(content).split(/\n\s*\n/).filter(p => p.trim())

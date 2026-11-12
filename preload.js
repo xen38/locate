@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('locateAPI', {
   listSessions: (sourcePath) => ipcRenderer.invoke('session:list', sourcePath),
   listAllSessions: () => ipcRenderer.invoke('session:listAll'),
   readSession: (sessionId) => ipcRenderer.invoke('session:read', sessionId),
+  deleteSession: (sessionId) => ipcRenderer.invoke('session:delete', sessionId),
+  deleteSessionFile: (sessionId) => ipcRenderer.invoke('session:deleteFile', sessionId),
   searchSessions: (query, options) => ipcRenderer.invoke('session:search', query, options),
   getContext: (sessionId, messageIndex, before, after) =>
     ipcRenderer.invoke('session:getContext', sessionId, messageIndex, before, after),

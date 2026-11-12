@@ -344,6 +344,7 @@ a { color: #ffffff; }
   flex: 1;
   overflow-y: auto;
   padding: 24px;
+  position: relative;
 }
 
 .session-view.hidden {
@@ -459,4 +460,147 @@ a { color: #ffffff; }
 
 ::-webkit-scrollbar-thumb:hover {
   background: #555555;
+}
+
+/* Close session button (top-right corner of session view) */
+.close-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid #333333;
+  border-radius: 4px;
+  color: #007aff;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  z-index: 5;
+}
+
+.close-btn:hover {
+  background: #1a1a1a;
+  border-color: #007aff;
+  color: #00a0ff;
+}
+
+/* Message rendering in session content */
+.session-content .message {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #222;
+}
+
+/* Context menu */
+.ctx-menu {
+  position: fixed;
+  background: #0a0a0a;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+  z-index: 2000;
+  display: none;
+  min-width: 180px;
+  overflow: hidden;
+}
+
+.ctx-menu-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.ctx-menu-item:hover {
+  background: #1a1a1a;
+}
+
+.ctx-menu-item-delete {
+  color: #ff4444;
+}
+
+.ctx-menu-item-delete:hover {
+  background: #2a1a1a;
+}
+
+/* Confirmation overlay */
+.ctx-confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+}
+
+.ctx-confirm-card {
+  background: #0a0a0a;
+  border: 1px solid #333333;
+  border-radius: 8px;
+  padding: 24px;
+  min-width: 300px;
+  max-width: 500px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+}
+
+.ctx-confirm-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 12px;
+}
+
+.ctx-confirm-message {
+  font-size: 13px;
+  color: #cccccc;
+  line-height: 1.5;
+  margin-bottom: 20px;
+  white-space: pre-wrap;
+}
+
+.ctx-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.ctx-confirm-btn {
+  height: 30px;
+  padding: 0 16px;
+  border: 1px solid #333333;
+  border-radius: 4px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ctx-confirm-btn:hover {
+  background: #1a1a1a;
+  border-color: #555555;
+}
+
+.ctx-confirm-cancel:hover {
+  color: #cccccc;
+}
+
+.ctx-confirm-delete {
+  color: #ff4444;
+  border-color: #ff4444;
+}
+
+.ctx-confirm-delete:hover {
+  background: #2a1a1a;
 }

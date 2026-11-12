@@ -59,6 +59,7 @@
         <div class="empty-desc">Click a session on the left to read its contents.</div>
       </div>
       <div id="sessionView" class="session-view hidden">
+        <button id="btnCloseSession" class="close-btn" title="Close session">&#215;</button>
         <div class="session-meta">
           <span id="metaHarness" class="meta-harness"></span>
           <span id="metaPath" class="meta-path"></span>
@@ -69,5 +70,23 @@
   </div>
 
   <script src="app.js"></script>
+
+  <!-- Context menu for session items -->
+  <div id="ctxMenu" class="ctx-menu">
+    <div class="ctx-menu-item" id="ctxDeleteEntry">Delete Entry</div>
+    <div class="ctx-menu-item ctx-menu-item-delete" id="ctxDeleteFile">Delete Session File</div>
+  </div>
+
+  <!-- Confirmation overlay for destructive actions -->
+  <div id="ctxConfirmOverlay" class="ctx-confirm-overlay">
+    <div class="ctx-confirm-card">
+      <div class="ctx-confirm-title" id="ctxConfirmTitle">Confirm</div>
+      <div class="ctx-confirm-message" id="ctxConfirmMessage"></div>
+      <div class="ctx-confirm-actions">
+        <button id="ctxConfirmCancel" class="ctx-confirm-btn ctx-confirm-cancel">Cancel</button>
+        <button id="ctxConfirmDelete" class="ctx-confirm-btn ctx-confirm-delete">Delete</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

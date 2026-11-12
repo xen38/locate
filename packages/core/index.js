@@ -26,6 +26,45 @@ const sqlPromise = initSqlJs({
   locateFile: file => path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist', file)
 }).then(sql => { SQL = sql })
 
+// Yield to the event loop so the UI stays responsive during long indexing
+const sleep = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms))
+
+// Known non-session file / directory names that should never appear as sessions
+const NON_SESSION_NAMES = new Set([
+  'models_cache',
+  '.lease',
+  'lease',
+  'cache',
+  'temp',
+  'tmp',
+  'lock',
+  '.lock',
+  'config',
+  'settings',
+  'preferences',
+  '.config'
+])
+
+function isNonSessionFile(filePath) {
+  const base = path.basename(filePath)
+  const lower = base.toLowerCase()
+  const nameWithoutExt = path.basename(filePath, path.extname(filePath))
+  const nameWithoutExtLower = nameWithoutExt.toLowerCase()
+  // Skip numeric-only filenames (e.g. "22135", "22136") - not real session files
+  if (/^\d+$/.test(nameWithoutExtLower)) return true
+  // Check name without extension against known non-session names (e.g. "config.json" -> "config")
+  if (NON_SESSION_NAMES.has(nameWithoutExtLower)) return true
+  if (NON_SESSION_NAMES.has(lower)) return true
+  // Skip files whose name contains or ends with known non-session patterns
+  // e.g. "139.lease.json", "foo.lease.db", ".lease" itself
+  for (const name of NON_SESSION_NAMES) {
+    if (lower === name || lower.endsWith('.' + name) || lower.includes('.' + name + '.')) return true
+  }
+  // Skip dotfiles that aren't recognized session formats
+  if (lower.startsWith('.') && !['.jsonl', '.json', '.md', '.txt', '.db', '.sqlite'].includes(path.extname(lower))) return true
+  return false
+}
+
 class IndexingEngine {
   constructor(dbPath) {
     this.dbPath = dbPath
@@ -366,12 +405,29 @@ class IndexingEngine {
             const tsCol = columns.find(c => /timestamp|created_at|date/i.test(c))
             const rows = db.prepare(`SELECT * FROM ${table}`).all()
             rows.forEach(row => {
+              let rawContent = row[contentCol] || ''
+              // If content looks like JSON, extract meaningful text instead of raw JSON
+              let content = rawContent
+              const trimmed = rawContent.trim()
+              if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                try {
+                  const parsed = JSON.parse(trimmed)
+                  const extracted = IndexingEngine.extractTextFromJsonValue(parsed)
+                  if (extracted && extracted.trim().length > 0) {
+                    content = extracted
+                  } else {
+                    content = rawContent
+                  }
+                } catch (e) {
+                  content = rawContent
+                }
+              }
               messages.push({
                 session_id: sessionId,
                 message_index: index++,
                 role: roleCol ? row[roleCol] : 'unknown',
                 timestamp: tsCol ? row[tsCol] : '',
-                content: row[contentCol] || '',
+                content,
                 tool_calls: null
               })
             })
@@ -458,6 +514,13 @@ class IndexingEngine {
     this.db.prepare('DELETE FROM sources WHERE path = ?').run(normalized)
   }
 
+  // Remove a single session from the index (undoable via re-index/refresh)
+  removeSession(sessionId) {
+    const safeId = String(sessionId).replace(/'/g, "''")
+    this.db.exec(`DELETE FROM messages WHERE session_id = '${safeId}'`)
+    this.db.exec(`DELETE FROM sessions WHERE session_id = '${safeId}'`)
+  }
+
   _detectHarness(dirPath) {
     return this.registry.detectHarness(dirPath)
   }
@@ -490,7 +553,7 @@ class IndexingEngine {
     let indexed = 0
     let skipped = 0
 
-    const discovered = this.registry.discover(source.path)
+    const discovered = this.registry.discover(source.path, source.harness)
     const files = discovered.map(d => d.filePath)
 
     const upsertSession = this.db.prepare(`INSERT INTO sessions (session_id, title, harness, source_path, file_path, file_ext,
@@ -518,6 +581,9 @@ class IndexingEngine {
     for (let i = 0; i < files.length; i += batchSize) {
       const batch = files.slice(i, i + batchSize)
       for (const filePath of batch) {
+        // Skip known non-session files
+        if (isNonSessionFile(filePath)) continue
+
         const fp = this._fingerprint(filePath)
         const existing = this.db
           .prepare('SELECT file_hash, file_mtime, file_size FROM sessions WHERE file_path = ?')
@@ -529,9 +595,30 @@ class IndexingEngine {
         }
 
         const sessions = await this._getFileSessions(filePath)
-        if (sessions.length === 0) continue
+        // Filter out sessions that have no real content (not actual conversations)
+        const validSessions = sessions.filter(s => {
+          if (!s.messages || s.messages.length === 0) return false
+          // Skip sessions with numeric-only IDs (not real conversations)
+          if (/^\d+$/.test(String(s.sessionId || ''))) return false
+          if (/^\d+$/.test(String(s.title || ''))) return false
+          const hasContent = s.messages.some(m => {
+            const c = typeof m.content === 'string' ? m.content : (m.content != null ? String(m.content) : '')
+            return c.trim().length > 0
+          })
+          if (!hasContent) return false
+          // Skip records whose content looks like raw JSON metadata, not conversation
+          const firstContent = typeof s.messages[0].content === 'string' ? s.messages[0].content : (s.messages[0].content != null ? String(s.messages[0].content) : '')
+          if (firstContent.trim().startsWith('{') && firstContent.trim().endsWith('}')) {
+            try {
+              const parsed = JSON.parse(firstContent)
+              if (parsed.models || parsed.fetched_at || parsed.etag || parsed.identity) return false
+            } catch (e) {}
+          }
+          return true
+        })
+        if (validSessions.length === 0) continue
 
-        for (const s of sessions) {
+        for (const s of validSessions) {
           const contentHash = crypto.createHash('sha256').update(s.content).digest('hex')
           work.push({
             fp,
@@ -541,6 +628,8 @@ class IndexingEngine {
           })
         }
       }
+      // Yield between batches to keep UI responsive
+      await sleep()
     }
 
     // Phase 2: write all to DB inside a transaction
@@ -564,12 +653,14 @@ class IndexingEngine {
 
         this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(session.sessionId)
         for (const m of session.messages) {
+          const mc = m.content
+          const contentStr = typeof mc === 'string' ? mc : String(mc != null ? mc : '')
           insertMessage.run([
             session.sessionId,
             m.message_index ?? m.index ?? 0,
             m.role,
             m.timestamp || '',
-            m.content || '',
+            contentStr,
             m.tool_calls ? JSON.stringify(m.tool_calls) : null
           ])
         }
@@ -609,6 +700,8 @@ class IndexingEngine {
       } catch (e) {
         results.push({ sourceId: source.id, sourcePath: source.path, error: e.message })
       }
+      // Yield between sources to keep UI responsive
+      await sleep()
     }
     return results
   }
@@ -636,7 +729,7 @@ class IndexingEngine {
     if (!source) throw new Error(`Source not found: ${sourceId}`)
 
     const batchSize = options.batchSize || 10
-    const discovered = this.registry.discover(source.path)
+    const discovered = this.registry.discover(source.path, source.harness)
     const files = discovered.map(d => d.filePath)
     let indexed = 0
     let skipped = 0
@@ -786,24 +879,33 @@ class IndexingEngine {
     if (adapter) {
       if (typeof adapter.parseAllSessions === 'function') {
         const sessions = await adapter.parseAllSessions(filePath)
-        return sessions.map(s => ({
-          sessionId: s.sessionId,
-          title: s.title,
-          createdAt: s.createdAt || '',
-          messages: s.messages || [],
-          content: s.messages.map(m => m.content).join('\n') || '',
-          filePath,
-          harness: s.harness || adapter.harness || 'Unknown'
-        }))
+        return sessions.map(s => {
+          const content = (s.messages || [])
+            .map(m => {
+              const c = m.content
+              return typeof c === 'string' ? c : String(c != null ? c : '')
+            })
+            .join('\n')
+          return {
+            sessionId: s.sessionId,
+            title: s.title,
+            createdAt: s.createdAt || '',
+            messages: s.messages || [],
+            content: content || '',
+            filePath,
+            harness: s.harness || adapter.harness || 'Unknown'
+          }
+        })
       }
       const parsed = adapter.parseSession(filePath)
       if (parsed) {
+        const text = adapter.extractText(filePath)
         return [{
           sessionId: parsed.sessionId,
           title: parsed.title,
           createdAt: parsed.createdAt || '',
           messages: parsed.messages || [],
-          content: adapter.extractText(filePath) || '',
+          content: typeof text === 'string' ? text : String(text || ''),
           filePath,
           harness: parsed.harness || adapter.harness || 'Unknown'
         }]
@@ -988,7 +1090,7 @@ class IndexingEngine {
 
   listSessions(options = {}) {
     const harness = options.harness || null
-    const limit = options.limit || 100
+    const limit = options.limit || 10000
     let sql = 'SELECT * FROM sessions'
     const params = []
     if (harness) {

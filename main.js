@@ -46,11 +46,11 @@ loadConfig()
 // ── Core Indexing Engine (shared with MCP server) ──────────────────────────
 
 const engine = new IndexingEngine(INDEX_DB_PATH)
-engine.open().catch(e => console.error('Failed to open index:', e))
 
 let mainWindow = null
 
 function createWindow() {
+  console.log('Creating window...')
   mainWindow = new BrowserWindow({
     width: config.windowBounds.width || 1200,
     height: config.windowBounds.height || 800,
@@ -65,7 +65,12 @@ function createWindow() {
     backgroundColor: '#000000'
   })
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  console.log('Window created, loading index.html...')
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html')).then(() => {
+    console.log('index.html loaded')
+  }).catch(e => {
+    console.error('Failed to load index.html:', e)
+  })
 
   // Remove default Electron menu bar (File, Edit, View, Window, Help)
   Menu.setApplicationMenu(null)
@@ -83,7 +88,13 @@ function createWindow() {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    await engine.open()
+    console.log('Index engine opened successfully')
+  } catch (e) {
+    console.error('Failed to open index engine:', e)
+  }
   createWindow()
 
   app.on('activate', () => {
@@ -266,6 +277,9 @@ ipcMain.handle('harness:autodetect', async () => {
   const detected = []
   const driveRoots = getDriveRoots()
 
+  // Delay helper to yield to UI thread between drive scans
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
   for (const root of driveRoots) {
     const usersDir = path.join(root, 'Users')
     try {
@@ -292,6 +306,9 @@ ipcMain.handle('harness:autodetect', async () => {
     } catch (e) {
       // skip inaccessible roots
     }
+
+    // Yield between drives to keep UI responsive
+    await sleep(30)
   }
 
   return detected
@@ -361,5 +378,34 @@ ipcMain.handle('session:getContext', async (event, sessionId, messageIndex, befo
     return engine.getContext(sessionId, messageIndex, before, after)
   } catch (e) {
     throw new Error(`Failed to get context: ${e.message}`)
+  }
+})
+
+// IPC: Remove a session from the index (undoable via refresh/re-index)
+ipcMain.handle('session:delete', async (event, sessionId) => {
+  try {
+    engine.removeSession(sessionId)
+    return { success: true }
+  } catch (e) {
+    throw new Error(`Failed to delete session: ${e.message}`)
+  }
+})
+
+// IPC: Delete the actual session file from disk (not undoable)
+ipcMain.handle('session:deleteFile', async (event, sessionId) => {
+  try {
+    const session = engine.getSession(sessionId)
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
+    const filePath = session.file_path
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+    }
+    // Also remove from index
+    engine.removeSession(sessionId)
+    return { success: true, deletedPath: filePath }
+  } catch (e) {
+    throw new Error(`Failed to delete session file: ${e.message}`)
   }
 })
