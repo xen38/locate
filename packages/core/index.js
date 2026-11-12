@@ -38,12 +38,22 @@ const NON_SESSION_NAMES = new Set([
   'temp',
   'tmp',
   'lock',
-  '.lock'
+  '.lock',
+  'config',
+  'settings',
+  'preferences',
+  '.config'
 ])
 
 function isNonSessionFile(filePath) {
   const base = path.basename(filePath)
   const lower = base.toLowerCase()
+  const nameWithoutExt = path.basename(filePath, path.extname(filePath))
+  const nameWithoutExtLower = nameWithoutExt.toLowerCase()
+  // Skip numeric-only filenames (e.g. "22135", "22136") - not real session files
+  if (/^\d+$/.test(nameWithoutExtLower)) return true
+  // Check name without extension against known non-session names (e.g. "config.json" -> "config")
+  if (NON_SESSION_NAMES.has(nameWithoutExtLower)) return true
   if (NON_SESSION_NAMES.has(lower)) return true
   // Skip files whose name contains or ends with known non-session patterns
   // e.g. "139.lease.json", "foo.lease.db", ".lease" itself
@@ -588,6 +598,9 @@ class IndexingEngine {
         // Filter out sessions that have no real content (not actual conversations)
         const validSessions = sessions.filter(s => {
           if (!s.messages || s.messages.length === 0) return false
+          // Skip sessions with numeric-only IDs (not real conversations)
+          if (/^\d+$/.test(String(s.sessionId || ''))) return false
+          if (/^\d+$/.test(String(s.title || ''))) return false
           const hasContent = s.messages.some(m => {
             const c = typeof m.content === 'string' ? m.content : (m.content != null ? String(m.content) : '')
             return c.trim().length > 0

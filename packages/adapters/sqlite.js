@@ -47,6 +47,9 @@ const sqlPromise = initSqlJs({
   locateFile: file => path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist', file)
 }).then(sql => { SQL = sql })
 
+// Yield to the event loop periodically during long row processing
+const sleep = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms))
+
 class SQLiteAdapter extends BaseAdapter {
   constructor(options = {}) {
     super({
@@ -157,6 +160,8 @@ class SQLiteAdapter extends BaseAdapter {
 
           let index = 0
           for (const row of rows) {
+            // Yield periodically to keep UI responsive during large DB scans
+            if (index % 50 === 0) await sleep()
             const sessionId = String(row[idCol] || path.basename(filePath, '.db') + '-' + index)
             const title = titleCol ? String(row[titleCol] || sessionId) : sessionId
             const createdAt = tsCol ? String(row[tsCol] || '') : ''
