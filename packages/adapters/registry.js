@@ -51,11 +51,19 @@ function makeClineValidator() {
   return (filePath) => {
     const ext = path.extname(filePath).toLowerCase()
     const base = path.basename(filePath)
-    if (ext !== '.json') return false
-    // Cline sessions: data/sessions/<session_id>/session_<id>.json
-    if (!/^session_/.test(base)) return false
+    const lower = base.toLowerCase()
+    // Cline sessions can be .json, .jsonl, .md, or .txt
+    if (!['.json', '.jsonl', '.md', '.txt'].includes(ext)) return false
+    // Must be in a "sessions" directory (data/sessions/, apps/kanban/sessions/, sessions/, etc.)
     const parts = filePath.split(path.sep)
-    return parts.includes('data') && parts.includes('sessions')
+    if (!parts.includes('sessions')) return false
+    // Exclude companion messages files (e.g. session_XXX.messages.json)
+    if (lower.endsWith('.messages.json')) return false
+    // Exclude known non-session config files
+    const nameWithoutExt = path.basename(filePath, ext).toLowerCase()
+    const nonSessionNames = ['settings', 'config', 'providers', 'feature-flags']
+    if (nonSessionNames.includes(nameWithoutExt)) return false
+    return true
   }
 }
 
@@ -74,11 +82,15 @@ function makeCopilotValidator() {
   return (filePath) => {
     const ext = path.extname(filePath).toLowerCase()
     const base = path.basename(filePath)
-    if (ext !== '.db' && ext !== '.sqlite') return false
-    // Copilot sessions: data.db or session-store.db inside chats/
-    if (base !== 'data.db' && base !== 'session-store.db') return false
     const parts = filePath.split(path.sep)
-    return parts.includes('chats')
+    // Copilot sessions:
+    //   - data.db or session-store.db at .copilot/ root (NOT chats/)
+    //   - session-state/<uuid>/session.db
+    if (base === 'data.db' || base === 'session-store.db') {
+      return parts.includes('.copilot') && !parts.includes('chats')
+    }
+    if (base === 'session.db' && parts.includes('session-state')) return true
+    return false
   }
 }
 
