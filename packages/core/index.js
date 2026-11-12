@@ -555,6 +555,24 @@ class IndexingEngine {
 
     const discovered = this.registry.discover(source.path, source.harness)
     const files = discovered.map(d => d.filePath)
+    const discoveredSet = new Set(files)
+
+    // Remove sessions from files that are no longer discovered (e.g. validator
+    // changes that exclude previously-matched non-session files)
+    const staleFiles = this.db
+      .prepare('SELECT DISTINCT file_path FROM sessions WHERE source_path = ?')
+      .all(source.path)
+      .map(r => r.file_path)
+      .filter(fp => !discoveredSet.has(fp))
+    for (const staleFile of staleFiles) {
+      const sessionsToDelete = this.db
+        .prepare('SELECT session_id FROM sessions WHERE file_path = ?')
+        .all(staleFile)
+      for (const s of sessionsToDelete) {
+        this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(s.session_id)
+        this.db.prepare('DELETE FROM sessions WHERE session_id = ?').run(s.session_id)
+      }
+    }
 
     const upsertSession = this.db.prepare(`INSERT INTO sessions (session_id, title, harness, source_path, file_path, file_ext,
                             file_mtime, file_size, file_hash, created_at, content_hash, content)
