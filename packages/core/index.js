@@ -16,7 +16,7 @@ const fs = require('fs')
 const crypto = require('crypto')
 const initSqlJs = require('sql.js')
 const { wrapDb } = require('./db-compat')
-const { AdapterRegistry } = require('../adapters/registry')
+const { AdapterRegistry, getSessionValidator } = require('../adapters/registry')
 
 // Supported session file extensions
 const SUPPORTED_EXTS = new Set(['.md', '.txt', '.json', '.jsonl', '.db', '.sqlite'])
@@ -42,7 +42,23 @@ const NON_SESSION_NAMES = new Set([
   'config',
   'settings',
   'preferences',
-  '.config'
+  '.config',
+  'messages',
+  '.messages',
+  'providers',
+  'feature-flags',
+  'feature_flags',
+  'credential',
+  'credentials',
+  'token',
+  'tokens',
+  'auth',
+  'history',
+  'index',
+  'indexed_db',
+  'leveldb',
+  'localstorage',
+  'websql'
 ])
 
 function isNonSessionFile(filePath) {
@@ -444,23 +460,19 @@ class IndexingEngine {
     return messages
   }
 
-  static collectSessionFiles(dirPath) {
-    const results = []
+  static collectSessionFiles(dirPath, harness = null) {
+    const registry = new AdapterRegistry()
+    if (!harness) harness = registry.detectHarness(dirPath)
     try {
-      const entries = fs.readdirSync(dirPath, { withFileTypes: true })
-      for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name)
-        if (entry.isDirectory()) {
-          results.push(...IndexingEngine.collectSessionFiles(fullPath))
-        } else if (entry.isFile()) {
-          const ext = path.extname(entry.name).toLowerCase()
-          if (SUPPORTED_EXTS.has(ext)) results.push(fullPath)
-        }
-      }
+      // registry.discover() applies both the extension check (via adapters)
+      // and the per-harness session validator, so only real session files
+      // are returned. This replaces the previous extension-only scan which
+      // produced false positives (agent definitions, caches, configs, etc.)
+      return registry.discover(dirPath, harness).map(d => d.filePath)
     } catch (e) {
       // skip inaccessible directories
+      return []
     }
-    return results
   }
 
   // ── Source management ─────────────────────────────────────────────────
@@ -632,6 +644,12 @@ class IndexingEngine {
               if (parsed.models || parsed.fetched_at || parsed.etag || parsed.identity) return false
             } catch (e) {}
           }
+          // Reject sessions whose content is "[object Object]" (unextracted object content)
+          const hasRealText = s.messages.some(m => {
+            const c = typeof m.content === 'string' ? m.content : (m.content != null ? String(m.content) : '')
+            return c.trim().length > 0 && c.trim() !== '[object Object]'
+          })
+          if (!hasRealText) return false
           return true
         })
         if (validSessions.length === 0) continue
@@ -978,6 +996,7 @@ class IndexingEngine {
     const excerptLength = options.excerptLength || 200
 
     const like = '%' + query + '%'
+    const enabledHarnesses = options.enabledHarnesses || null
 
     let sql = `
       SELECT s.id, s.session_id, s.title, s.harness, s.source_path, s.file_path,
@@ -995,6 +1014,12 @@ class IndexingEngine {
     if (harness) {
       sql += ` AND s.harness = ?`
       params.push(harness)
+    }
+
+    if (enabledHarnesses) {
+      if (enabledHarnesses.length === 0) return []
+      sql += ` AND s.harness IN (${enabledHarnesses.map(() => '?').join(', ')})`
+      params.push(...enabledHarnesses)
     }
 
     sql += ` ORDER BY rank, s.created_at DESC`
@@ -1108,16 +1133,31 @@ class IndexingEngine {
 
   listSessions(options = {}) {
     const harness = options.harness || null
+    const enabledHarnesses = options.enabledHarnesses || null
     const limit = options.limit || 10000
     let sql = 'SELECT * FROM sessions'
     const params = []
+    const conditions = []
     if (harness) {
-      sql += ' WHERE harness = ?'
+      conditions.push('harness = ?')
       params.push(harness)
+    }
+    if (enabledHarnesses) {
+      if (enabledHarnesses.length === 0) return []
+      conditions.push(`harness IN (${enabledHarnesses.map(() => '?').join(', ')})`)
+      params.push(...enabledHarnesses)
+    }
+    if (conditions.length) {
+      sql += ' WHERE ' + conditions.join(' AND ')
     }
     sql += ' ORDER BY created_at DESC LIMIT ?'
     params.push(limit)
     return this.db.prepare(sql).all(params)
+  }
+
+  getAllHarnesses() {
+    const rows = this.db.prepare('SELECT DISTINCT harness FROM sessions').all()
+    return rows.map(r => r.harness).filter(h => h != null && h !== '')
   }
 
   countSessions() {

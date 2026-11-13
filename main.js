@@ -14,7 +14,8 @@ const INDEX_DB_PATH = path.join(app.getPath('userData'), 'locate-index.db')
 const DEFAULT_CONFIG = {
   harnessDirectories: [],
   batchSize: 10,
-  windowBounds: { width: 1200, height: 800 }
+  windowBounds: { width: 1200, height: 800 },
+  harnessSettings: {}
 }
 
 let config = { ...DEFAULT_CONFIG }
@@ -39,6 +40,18 @@ function saveConfig() {
   } catch (e) {
     console.error('Failed to save config:', e.message)
   }
+}
+
+// Harnesses whose sessions should be shown in lists/search.
+// T3 Code is disabled by default because it aggregates other harnesses'
+// sessions (causing duplicates); every other harness is enabled by default.
+function getEnabledHarnesses() {
+  const all = engine.getAllHarnesses()
+  const settings = config.harnessSettings || {}
+  return all.filter(name => {
+    if (name in settings) return !!settings[name]
+    return name !== 'T3 Code'
+  })
 }
 
 loadConfig()
@@ -171,6 +184,34 @@ ipcMain.handle('harness:list', async () => {
   }))
 })
 
+// IPC: Get all known harnesses with their enabled state
+ipcMain.handle('harness:settings:get', async () => {
+  try {
+    const known = engine.getAllHarnesses()
+    const settings = config.harnessSettings || {}
+    return known.map(name => ({
+      name,
+      // Default: enabled for all harnesses except T3 Code (aggregates others, causes duplicates)
+      enabled: name in settings ? !!settings[name] : name !== 'T3 Code'
+    }))
+  } catch (e) {
+    console.error('Failed to get harness settings:', e.message)
+    return []
+  }
+})
+
+// IPC: Set enabled state for a single harness
+ipcMain.handle('harness:settings:set', async (event, name, enabled) => {
+  try {
+    config.harnessSettings = { ...config.harnessSettings, [name]: !!enabled }
+    saveConfig()
+    return config.harnessSettings
+  } catch (e) {
+    console.error('Failed to set harness setting:', e.message)
+    throw e
+  }
+})
+
 // IPC: Open folder picker dialog
 ipcMain.handle('dialog:openFolder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -186,13 +227,14 @@ ipcMain.handle('dialog:openFolder', async () => {
 // IPC: List sessions (optionally filtered by source path)
 ipcMain.handle('session:list', async (event, sourcePath) => {
   try {
+    const enabled = getEnabledHarnesses()
     let sessions
     if (sourcePath) {
       const normalized = path.resolve(sourcePath)
-      const all = engine.listSessions()
+      const all = engine.listSessions({ enabledHarnesses: enabled })
       sessions = all.filter(s => s.source_path === normalized)
     } else {
-      sessions = engine.listSessions()
+      sessions = engine.listSessions({ enabledHarnesses: enabled })
     }
     return sessions.map(s => ({
       id: s.session_id,
@@ -213,7 +255,7 @@ ipcMain.handle('session:list', async (event, sourcePath) => {
 // IPC: List all sessions across all sources
 ipcMain.handle('session:listAll', async () => {
   try {
-    const sessions = engine.listSessions()
+    const sessions = engine.listSessions({ enabledHarnesses: getEnabledHarnesses() })
     return sessions.map(s => ({
       id: s.session_id,
       session_id: s.session_id,
@@ -352,6 +394,7 @@ ipcMain.handle('session:search', async (event, query, options = {}) => {
     const results = engine.search(query, {
       harness: options.harness || undefined,
       role: options.role || undefined,
+      enabledHarnesses: getEnabledHarnesses(),
       limit: options.limit || 50,
       excerptLength: options.excerptLength || 200,
     })

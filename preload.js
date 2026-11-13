@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('locateAPI', {
   addHarness: (dirPath, harness) => ipcRenderer.invoke('harness:add', dirPath, harness),
   removeHarness: (dirPath) => ipcRenderer.invoke('harness:remove', dirPath),
   listHarnesses: () => ipcRenderer.invoke('harness:list'),
+  getHarnessSettings: () => ipcRenderer.invoke('harness:settings:get'),
+  setHarnessSetting: (name, enabled) => ipcRenderer.invoke('harness:settings:set', name, enabled),
   autodetectHarnesses: () => ipcRenderer.invoke('harness:autodetect'),
   openFolderDialog: () => ipcRenderer.invoke('dialog:openFolder'),
 
