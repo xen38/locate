@@ -159,11 +159,15 @@ class CodexAdapter extends BaseAdapter {
         const createdAt = row.source_updated_at || row.source_created_at || ''
         const sourceKind = row.source_kind || ''
 
+        // Skip sessions with no local message content (ChatGPT-imported threads
+        // live entirely on remote servers — nothing to index locally)
+        if (!sourceKind || sourceKind === 'chatgpt') continue
+
         sessions.push({
           sessionId,
           title,
           createdAt,
-          messages: [], // No local message content for ChatGPT threads
+          messages: [],
           filePath,
           harness: this.harness,
           _meta: { sourceKind, cwd: row.cwd }
@@ -200,7 +204,7 @@ class CodexAdapter extends BaseAdapter {
     const extractTextFromContent = (contentArr) => {
       if (!Array.isArray(contentArr)) return ''
       return contentArr
-        .filter(c => c && c.type === 'input_text')
+        .filter(c => c && (c.type === 'input_text' || c.type === 'output_text' || c.type === 'text'))
         .map(c => c.text || '')
         .join('\n')
     }
