@@ -1,3 +1,13 @@
+// Global error handlers to capture crashes
+window.onerror = (msg, url, line, col, error) => {
+  console.error('UNCAUGHT ERROR:', msg, 'at', url, ':', line, ':', col, error)
+  return true
+}
+
+window.onunhandledrejection = (event) => {
+  console.error('UNHANDLED REJECTION:', event.reason)
+}
+
 const setup = () => {
   const locateAPI = window.locateAPI
 
@@ -390,33 +400,44 @@ const setup = () => {
   }
 
   async function scanAndAutodetectHarnesses() {
-    const detected = await locateAPI.autodetectHarnesses()
-    const current = await locateAPI.listHarnesses()
-    const currentPaths = new Set(current.map(h => h.path))
-    let added = 0
-    for (const d of detected) {
-      if (!currentPaths.has(d)) {
-        await locateAPI.addHarness(d)
-        added++
-      }
-    }
-
-    renderHarnesses()
-
-    // Index all sources so sessions appear in the list
     try {
-      await locateAPI.indexAllSources()
+      const detected = await locateAPI.autodetectHarnesses()
+      const current = await locateAPI.listHarnesses()
+      const currentPaths = new Set(current.map(h => h.path))
+      let added = 0
+      for (const d of detected) {
+        if (!currentPaths.has(d)) {
+          await locateAPI.addHarness(d)
+          added++
+        }
+      }
+
+      renderHarnesses()
+
+      // Index all sources so sessions appear in the list
+      try {
+        await locateAPI.indexAllSources()
+      } catch (e) {
+        console.error('Indexing failed:', e)
+      }
+
+      try {
+        await loadSessions()
+      } catch (e) {
+        console.error('Loading sessions failed:', e)
+      }
+
+      // Notify user
+      const btn = btnScanHarnesses
+      const orig = btn.textContent
+      btn.textContent = `Found ${added} new harness${added !== 1 ? 'es' : ''}`
+      setTimeout(() => { btn.textContent = orig }, 2000)
     } catch (e) {
-      console.error('Indexing failed:', e)
+      console.error('Scan failed:', e)
+      alert('Scan failed: ' + e.message)
     }
-
-    await loadSessions()
-
-    // Notify user
-    const btn = btnScanHarnesses
-    const orig = btn.textContent
-    btn.textContent = `Found ${added} new harness${added !== 1 ? 'es' : ''}`
-    setTimeout(() => { btn.textContent = orig }, 2000)
+    menuOpen = false
+    menuPanel.style.display = 'none'
   }
 
   function renderHarnesses() {
@@ -453,12 +474,17 @@ const setup = () => {
       const removeBtn = item.querySelector('.remove')
       removeBtn.addEventListener('click', async (e) => {
         e.stopPropagation()
-        // Remove all directories for this harness
-        for (const h of items) {
-          await locateAPI.removeHarness(h.path || h)
+        try {
+          // Remove all directories for this harness
+          for (const h of items) {
+            await locateAPI.removeHarness(h.path || h)
+          }
+          loadHarnesses()
+          await loadSessions()
+        } catch (err) {
+          console.error('Remove harness failed:', err)
+          alert('Failed to remove harness: ' + err.message)
         }
-        loadHarnesses()
-        await loadSessions()
       })
       harnessList.appendChild(item)
     })
