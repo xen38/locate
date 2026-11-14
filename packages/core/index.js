@@ -516,11 +516,12 @@ class IndexingEngine {
 
   removeSource(dirPath) {
     const normalized = path.resolve(dirPath)
-    // Delete sessions from this source first (cascades to messages)
+    // Delete sessions and their messages from this source
     const sessions = this.db
       .prepare('SELECT session_id FROM sessions WHERE source_path = ?')
       .all(normalized)
     for (const s of sessions) {
+      this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(s.session_id)
       this.db.prepare('DELETE FROM sessions WHERE session_id = ?').run(s.session_id)
     }
     this.db.prepare('DELETE FROM sources WHERE path = ?').run(normalized)
@@ -608,6 +609,7 @@ class IndexingEngine {
 
     // Phase 1: discover sessions from files (async, outside transaction)
     const work = []
+    const filesProcessedWithoutSessions = new Set()
     for (let i = 0; i < files.length; i += batchSize) {
       const batch = files.slice(i, i + batchSize)
       for (const filePath of batch) {
@@ -639,10 +641,9 @@ class IndexingEngine {
           // Must have a valid title
           if (!s.title || s.title.trim().length === 0) return false
 
-          // Allow sessions with no local messages (e.g. Codex/ChatGPT where
-          // message content is stored remotely). These still have a valid
-          // session id and title.
-          if (!s.messages || s.messages.length === 0) return true
+          // Reject sessions with no messages at all (empty threads, not real
+          // conversations to display in the app)
+          if (!s.messages || s.messages.length === 0) return false
 
           const hasContent = s.messages.some(m => {
             const c = typeof m.content === 'string' ? m.content : (m.content != null ? String(m.content) : '')
@@ -665,7 +666,10 @@ class IndexingEngine {
           if (!hasRealText) return false
           return true
         })
-        if (validSessions.length === 0) continue
+        if (validSessions.length === 0) {
+          filesProcessedWithoutSessions.add(filePath)
+          continue
+        }
 
         for (const s of validSessions) {
           const contentHash = crypto.createHash('sha256').update(s.content).digest('hex')
@@ -679,6 +683,18 @@ class IndexingEngine {
       }
       // Yield between batches to keep UI responsive
       await sleep()
+    }
+
+    // Remove sessions from files that produced no valid sessions (e.g. empty
+    // Codex/ChatGPT threads re-scanned after previous indexing left stale rows)
+    for (const filePath of filesProcessedWithoutSessions) {
+      const sessionsToDelete = this.db
+        .prepare('SELECT session_id FROM sessions WHERE file_path = ?')
+        .all(filePath)
+      for (const s of sessionsToDelete) {
+        this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(s.session_id)
+        this.db.prepare('DELETE FROM sessions WHERE session_id = ?').run(s.session_id)
+      }
     }
 
     // Phase 2: write all to DB inside a transaction
@@ -752,6 +768,24 @@ class IndexingEngine {
       // Yield between sources to keep UI responsive
       await sleep()
     }
+
+    // Clean up sessions that have no messages (e.g. empty Codex/ChatGPT threads
+    // indexed before the empty-session filter was added). These are not real
+    // conversations and should not appear in the app.
+    try {
+      const emptySessions = this.db
+        .prepare('SELECT s.session_id FROM sessions s LEFT JOIN messages m ON m.session_id = s.session_id WHERE m.session_id IS NULL')
+        .all()
+      for (const s of emptySessions) {
+        this.db.prepare('DELETE FROM sessions WHERE session_id = ?').run(s.session_id)
+      }
+      if (emptySessions.length > 0) {
+        console.log(`[ENGINE] Cleaned up ${emptySessions.length} session(s) with no messages`)
+      }
+    } catch (e) {
+      console.error('[ENGINE] Failed to clean up empty sessions:', e.message)
+    }
+
     return results
   }
 
