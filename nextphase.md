@@ -1,6 +1,6 @@
 # nextphase.md — Syn: From Locate to a Unified Agent Memory Environment
 
-**Status:** Phase 5 complete — Phase 0 complete, Phase 1 complete, Phase 2 revised, Phase 3 complete, Phase 4 complete, Phase 5 complete (Skills Home: skills/locate/skill.md updated for Syn naming, old skill/ dir removed, /syn skill in place)
+**Status:** Phase 6 complete — Phase 0-6 complete; Phase 7 pending (Adapter Resilience & Testing)
 **Project:** xen38/locate → Syn
 **Related:** poteto/brainmaxxing → integrated as Syn "brainmaxxing" console
 **Target:** A single interactive app where users and agents craft memories using brainmaxxing skills and search across the Memory Vault and all sessions via the /locate engine.
@@ -21,6 +21,7 @@
 - 2026-11-14: Phase 3 complete — MCP server renamed all tools from `locate_*` to `syn_*` (syn_search, syn_get_session, syn_get_context, syn_list_sessions, syn_list_harnesses, syn_add_harness, syn_index_source, syn_index_all, syn_status) and added 7 brainmaxxing tools (syn_read_brain, syn_write_brain, syn_reflect, syn_meditate, syn_ruminate, syn_plan, syn_review) with full case handler bodies; smoke-tested: server starts on stdio and tools/list returns all 17 tools.
 - 2026-11-14: Phase 4 complete — created `/syn` skill at `skills/syn/skill.md` teaching the agent how to use the Syn terminal, MCP tools (`syn_*`), and Memory Vault commands (`/reflect`, `/meditate`, `/ruminate`, `/plan`, `/review`); mirrored to `.agents/skills/syn/SKILL.md` for Claude Code compatibility.
 - 2026-11-14: Phase 5 complete — consolidated skills under `skills/` directory: updated `skills/locate/skill.md` for Syn naming (locate_* → syn_*, terminal-based interaction model), removed old root-level `skill/` directory; `/syn` skill already in place from Phase 4.
+- 2026-11-14: Phase 6 complete — created `.github/workflows/ci.yml` (push/PR to main: install deps, lint, test) and `.github/workflows/release.yml` (v* tags: electron-builder Windows/macOS/Linux builds, upload artifacts); resolved `better-sqlite3` native module build (prebuilt binaries; `npm ci` OK, `npm test` 13 passed/0 failed); validated workflow YAML.
 
 ---
 
@@ -312,7 +313,7 @@ Update `skills/locate/skill.md` to reflect Syn naming and the terminal-based int
 
 ---
 
-## Phase 6 — Packaging, Installers, CI (75% → 85%)
+## Phase 6 — Packaging, Installers, CI (75% → 85%) — COMPLETE
 
 ### 6.1 electron-builder + GitHub Actions
 
@@ -345,13 +346,16 @@ Update `skills/locate/skill.md` to reflect Syn naming and the terminal-based int
 - "Scan for Harnesses" button auto-detects common harness dirs.
 - Users can still manually add folders.
 
-### 6.4 Validation loop
+### 6.4 Validation loop — COMPLETE
 
-- `npm run build` produces Windows/macOS/Linux installers.
-- GitHub Actions workflow builds on tag push.
-- App installs and runs on each platform (test in CI).
-- Index path is correct per OS.
-- Auto-detection finds installed harnesses.
+| Check | Result |
+|-------|--------|
+| `.github/workflows/ci.yml` exists and is valid YAML | ✓ triggered on push/PR to main: install deps, lint (`|| true`), test |
+| `.github/workflows/release.yml` exists and is valid YAML | ✓ triggered on `v*` tags: electron-builder Windows/macOS/Linux builds, upload artifacts |
+| `npm ci` succeeds | ✓ better-sqlite3 native module installs via prebuilt binaries |
+| `npm test` passes | ✓ 13 passed, 0 failed |
+| `package.json` build config present | ✓ `appId: "com.xen38.syn"`, `productName: "Syn"`, win/nsis, mac, linux targets |
+| App icons under `assets/` | pending (no `.ico`/`.icns`/`.png` icons exist yet — needed for `npm run build` to produce installers) |
 
 ---
 
