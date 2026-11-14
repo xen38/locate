@@ -42,11 +42,32 @@ function saveConfig() {
   }
 }
 
+// All possible harnesses that can appear in the settings menu,
+// even if not yet indexed on this machine. This lets users pre-enable
+// or pre-disable harnesses before they are detected.
+const ALL_POSSIBLE_HARNESSES = [
+  'Cline',
+  'Codex',
+  'GitHub Copilot',
+  'Cursor',
+  'Pi',
+  'T3 Code',
+  'Claude Code',
+  'OpenCode',
+  'OpenCode / Crush',
+  'Windsurf',
+  'Continue',
+  'Zed',
+  'Roo',
+  'Aider',
+  'Gemini CLI'
+]
+
 // Harnesses whose sessions should be shown in lists/search.
 // T3 Code is disabled by default because it aggregates other harnesses'
 // sessions (causing duplicates); every other harness is enabled by default.
 function getEnabledHarnesses() {
-  const all = engine.getAllHarnesses()
+  const all = ALL_POSSIBLE_HARNESSES
   const settings = config.harnessSettings || {}
   return all.filter(name => {
     if (name in settings) return !!settings[name]
@@ -187,9 +208,8 @@ ipcMain.handle('harness:list', async () => {
 // IPC: Get all known harnesses with their enabled state
 ipcMain.handle('harness:settings:get', async () => {
   try {
-    const known = engine.getAllHarnesses()
     const settings = config.harnessSettings || {}
-    return known.map(name => ({
+    return ALL_POSSIBLE_HARNESSES.map(name => ({
       name,
       // Default: enabled for all harnesses except T3 Code (aggregates others, causes duplicates)
       enabled: name in settings ? !!settings[name] : name !== 'T3 Code'

@@ -53,13 +53,15 @@ class JsonAdapter extends BaseAdapter {
         })
       })
     } else {
-      // Single message object
+      // Single message object or session metadata (e.g. Cline)
+      // Extract prompt/text/content as the session content
+      const content = obj.prompt || obj.content || obj.text || obj.message || ''
       messages.push({
         session_id: sessionId,
         message_index: 0,
-        role: obj.role || 'unknown',
-        timestamp: obj.timestamp || '',
-        content: obj.content || obj.text || obj.message || content,
+        role: obj.role || 'user',
+        timestamp: obj.timestamp || obj.created_at || '',
+        content: typeof content === 'string' ? content : '',
         tool_calls: obj.tool_calls || null
       })
     }

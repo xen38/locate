@@ -478,13 +478,9 @@ const setup = () => {
     names.forEach((name) => {
       const enabled = harnessSettings[name] !== false
       const row = document.createElement('div')
-      row.className = 'setting-row'
-      row.style.flexDirection = 'row'
-      row.style.alignItems = 'center'
-      row.style.justifyContent = 'space-between'
-      row.style.gap = '8px'
+      row.className = 'setting-row harness-row'
       row.innerHTML = `
-        <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#cccccc;">
+        <label class="harness-label" data-harness="${escapeHtml(name)}">
           <input type="checkbox" class="harness-toggle" data-harness="${escapeHtml(name)}" ${enabled ? 'checked' : ''}>
           <span>${escapeHtml(name)}</span>
         </label>

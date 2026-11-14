@@ -12,6 +12,9 @@ const { SQLiteAdapter } = require('./sqlite')
 const { JsonlAdapter } = require('./jsonl')
 const { JsonAdapter } = require('./json')
 const { TextAdapter } = require('./text')
+const { OpencodeAdapter } = require('./opencode')
+const { CodexAdapter } = require('./codex')
+const { ClaudeCodeAdapter } = require('./claude-code')
 
 // Harness detection from directory path
 function detectHarness(dirPath) {
@@ -25,9 +28,12 @@ function detectHarness(dirPath) {
   if (base.includes('t3') || lower.includes('t3')) return 'T3 Code'
   if (base.includes('claude') || lower.includes('claude')) return 'Claude Code'
   if (base.includes('opencode') || lower.includes('opencode')) return 'OpenCode'
+  if (base.includes('crush') || lower.includes('crush')) return 'OpenCode / Crush'
   if (base.includes('windsurf') || lower.includes('windsurf')) return 'Windsurf'
   if (base.includes('aider') || lower.includes('aider')) return 'Aider'
   if (base.includes('continue') || lower.includes('continue')) return 'Continue'
+  if (base.includes('zed') || lower.includes('zed')) return 'Zed'
+  if (base.includes('roo') || lower.includes('roo')) return 'Roo'
   if (base.includes('gemini') || lower.includes('gemini')) return 'Gemini CLI'
   return 'Unknown'
 }
@@ -42,7 +48,9 @@ function makeCursorValidator() {
     const ext = path.extname(filePath).toLowerCase()
     if (ext !== '.jsonl') return false
     // Cursor sessions: projects/*/agent-transcripts/<uuid>/<uuid>.jsonl
-    const parts = filePath.split(path.sep)
+    // Exclude subagent transcripts under subagents/
+    const parts = filePath.split(/[\\/]/)
+    if (parts.includes('subagents')) return false
     return parts.includes('agent-transcripts')
   }
 }
@@ -52,10 +60,12 @@ function makeClineValidator() {
     const ext = path.extname(filePath).toLowerCase()
     const base = path.basename(filePath)
     const lower = base.toLowerCase()
+    const parts = filePath.split(/[\\/]/)
     // Cline sessions can be .json, .jsonl, .md, or .txt
     if (!['.json', '.jsonl', '.md', '.txt'].includes(ext)) return false
-    // Must be in a "sessions" directory (data/sessions/, apps/kanban/sessions/, sessions/, etc.)
-    const parts = filePath.split(path.sep)
+    // Must be under a cline directory (e.g. .cline, cline)
+    if (!parts.some(p => p === '.cline' || p === 'cline')) return false
+    // Must be in a "sessions" directory
     if (!parts.includes('sessions')) return false
     // Exclude companion messages files (e.g. session_XXX.messages.json)
     if (lower.endsWith('.messages.json')) return false
@@ -71,10 +81,19 @@ function makeCodexValidator() {
   return (filePath) => {
     const ext = path.extname(filePath).toLowerCase()
     const base = path.basename(filePath)
-    if (ext !== '.sqlite' && ext !== '.db') return false
-    // Codex session databases: goals_1.sqlite, logs_2.sqlite, etc.
-    // Not: auth.json, config.toml, models_cache.json
-    return /^(goals|logs|queue|memories|state)_\d+\.sqlite$/i.test(base)
+    const parts = filePath.split(/[\\/]/)
+    // Codex session database: codex.db (or codex-dev.db) contains local_thread_catalog
+    // with ChatGPT thread metadata. Other .sqlite files under .codex (goals_1.sqlite,
+    // logs_2.sqlite, state_5.sqlite, etc.) are NOT session files.
+    if (ext === '.sqlite' || ext === '.db') {
+      return /^codex(\.dev)?\.db$/i.test(base)
+    }
+    // Codex archived sessions: .jsonl files under .codex/archived_sessions/
+    // contain real local session transcripts with message content.
+    if (ext === '.jsonl') {
+      return parts.includes('archived_sessions') && parts.some(p => p === '.codex' || p === 'codex')
+    }
+    return false
   }
 }
 
@@ -82,7 +101,7 @@ function makeCopilotValidator() {
   return (filePath) => {
     const ext = path.extname(filePath).toLowerCase()
     const base = path.basename(filePath)
-    const parts = filePath.split(path.sep)
+    const parts = filePath.split(/[\\/]/)
     // Copilot sessions:
     //   - data.db or session-store.db at .copilot/ root (NOT chats/)
     //   - session-state/<uuid>/session.db
@@ -99,7 +118,7 @@ function makePiValidator() {
     const ext = path.extname(filePath).toLowerCase()
     if (ext !== '.jsonl' && ext !== '.ndjson') return false
     // Pi sessions: agent/sessions/<workspace>/<timestamp>_<uuid>.jsonl
-    const parts = filePath.split(path.sep)
+    const parts = filePath.split(/[\\/]/)
     return parts.includes('agent') && parts.includes('sessions')
   }
 }
@@ -108,13 +127,114 @@ function makeT3CodeValidator() {
   return (filePath) => {
     const ext = path.extname(filePath).toLowerCase()
     const base = path.basename(filePath)
-    if (ext !== '.ndjson' && ext !== '.jsonl') return false
-    // T3 Code sessions: userdata/device/agent-device/sessions/<session>/events.ndjson
-    if (base !== 'events.ndjson') return false
-    const parts = filePath.split(path.sep)
-    return parts.includes('agent-device') && parts.includes('sessions')
+    const lower = base.toLowerCase()
+    const parts = filePath.split(/[\\/]/)
+    // T3 Code sessions come in two shapes:
+    //   - .t3/userdata/statev2.sqlite  (settled/archived sessions, SQLite)
+    //   - .../agent-device/sessions/<session>/events.ndjson  (device session stream)
+    if (ext === '.sqlite' || ext === '.db') {
+      return /^statev2(\.\d+)?\.sqlite$/i.test(lower)
+    }
+    if (ext === '.ndjson' || ext === '.jsonl') {
+      if (lower !== 'events.ndjson') return false
+      return parts.includes('agent-device') && parts.includes('sessions')
+    }
+    return false
   }
 }
+
+function makeClaudeCodeValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    if (ext !== '.jsonl') return false
+    // Claude Code sessions: ~/.claude/projects/<workspace>/<session_id>.jsonl
+    const parts = filePath.split(/[\\/]/)
+    return parts.includes('.claude') && parts.includes('projects')
+  }
+}
+
+function makeOpencodeValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    const base = path.basename(filePath)
+    const lower = base.toLowerCase()
+    const parts = filePath.split(/[\\/]/)
+    const inOpencode = parts.some(p => p === '.opencode' || p === '.crush' || p === 'opencode' || p === 'crush')
+    if (!inOpencode) return false
+    // OpenCode / Crush store conversations in SQLite databases
+    if (ext === '.sqlite' || ext === '.db') {
+      const name = path.basename(filePath, ext).toLowerCase()
+      // Skip cache / temp / lock databases
+      if (NON_SESSION_DB_NAMES.has(name)) return false
+      return true
+    }
+    // JSONL session exports
+    if (ext === '.jsonl' || ext === '.ndjson') {
+      return parts.includes('sessions') || parts.includes('conversations')
+    }
+    return false
+  }
+}
+
+function makeWindsurfValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    if (ext !== '.json' && ext !== '.jsonl') return false
+    const parts = filePath.split(/[\\/]/)
+    return parts.some(p => p === '.windsurf' || p === 'windsurf')
+  }
+}
+
+function makeContinueValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    if (ext !== '.json' && ext !== '.jsonl') return false
+    const parts = filePath.split(/[\\/]/)
+    return parts.some(p => p === '.continue' || p === 'continue')
+  }
+}
+
+function makeZedValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    if (ext !== '.json') return false
+    const parts = filePath.split(/[\\/]/)
+    return parts.some(p => p === '.zed' || p === 'zed')
+  }
+}
+
+function makeRooValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    if (ext !== '.json' && ext !== '.jsonl') return false
+    const parts = filePath.split(/[\\/]/)
+    return parts.some(p => p === '.roo' || p === 'roo')
+  }
+}
+
+function makeAiderValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    if (ext !== '.json' && ext !== '.md') return false
+    const parts = filePath.split(/[\\/]/)
+    return parts.some(p => p === '.aider' || p === 'aider')
+  }
+}
+
+function makeGeminiValidator() {
+  return (filePath) => {
+    const ext = path.extname(filePath).toLowerCase()
+    if (ext !== '.json' && ext !== '.jsonl') return false
+    const parts = filePath.split(/[\\/]/)
+    return parts.some(p => p === '.gemini' || p === 'gemini')
+  }
+}
+
+// Known non-session database names for SQLite-backed harnesses (Opencode/Crush, etc.)
+const NON_SESSION_DB_NAMES = new Set([
+  'cache', 'temp', 'tmp', 'lock', 'config', 'settings', 'models_cache',
+  'platform-cache', 'repo-metadata-cache', 'session-search'
+])
 
 function getSessionValidator(harness) {
   const validators = {
@@ -123,7 +243,16 @@ function getSessionValidator(harness) {
     Codex: makeCodexValidator(),
     'GitHub Copilot': makeCopilotValidator(),
     Pi: makePiValidator(),
-    'T3 Code': makeT3CodeValidator()
+    'T3 Code': makeT3CodeValidator(),
+    'Claude Code': makeClaudeCodeValidator(),
+    'OpenCode / Crush': makeOpencodeValidator(),
+    OpenCode: makeOpencodeValidator(),
+    Windsurf: makeWindsurfValidator(),
+    Continue: makeContinueValidator(),
+    Zed: makeZedValidator(),
+    Roo: makeRooValidator(),
+    Aider: makeAiderValidator(),
+    'Gemini CLI': makeGeminiValidator()
   }
   const validator = validators[harness]
   if (!validator) return () => false // Unknown harness → discover nothing
@@ -137,11 +266,25 @@ class AdapterRegistry {
   }
 
   _registerBuiltins() {
-    // SQLite adapter - handles .db/.sqlite files
+    // OpenCode adapter - handles opencode.db (better-sqlite3, large files).
+    // Registered BEFORE SQLiteAdapter so opencode.db matches this adapter first.
+    this.adapters.push(new OpencodeAdapter({ harness: 'OpenCode' }))
+
+    // Codex adapter - handles codex.db (better-sqlite3) for ChatGPT thread catalog.
+    // Registered BEFORE SQLiteAdapter so codex.db matches this adapter first.
+    this.adapters.push(new CodexAdapter({ harness: 'Codex' }))
+
+    // SQLite adapter - handles .db/.sqlite files (Codex fallback, T3 Code, generic)
     this.adapters.push(new SQLiteAdapter({ harness: 'SQLite' }))
 
-    // JSONL adapter - handles .jsonl files
+    // SQLite adapter for GitHub Copilot session-store.db
+    this.adapters.push(new SQLiteAdapter({ harness: 'GitHub Copilot' }))
+
+    // JSONL adapter - handles .jsonl files (Pi, Cline, Claude Code)
     this.adapters.push(new JsonlAdapter({ harness: 'JSONL' }))
+
+    // Claude Code adapter - handles Claude Code .jsonl session transcripts
+    this.adapters.push(new ClaudeCodeAdapter({ harness: 'Claude Code' }))
 
     // JSON adapter - handles .json files
     this.adapters.push(new JsonAdapter({ harness: 'JSON' }))
@@ -232,4 +375,4 @@ class AdapterRegistry {
   }
 }
 
-module.exports = { AdapterRegistry, detectHarness }
+module.exports = { AdapterRegistry, detectHarness, getSessionValidator }

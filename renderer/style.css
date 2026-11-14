@@ -209,17 +209,72 @@ a { color: #ffffff; }
 }
 
 /* Harness enable/disable toggle switches */
+.harness-settings {
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.harness-settings::-webkit-scrollbar {
+  width: 8px;
+}
+
+.harness-settings::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+.harness-settings::-webkit-scrollbar-thumb {
+  background: #333333;
+  border-radius: 4px;
+}
+
+.harness-settings::-webkit-scrollbar-thumb:hover {
+  background: #444444;
+}
+
+.setting-row.harness-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  margin: 2px 0;
+  font-size: 12px;
+  background: transparent;
+  border-radius: 4px;
+}
+
+.setting-row.harness-row:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.setting-row.harness-row label {
+  margin: 0;
+  font-size: 12px;
+  color: #cccccc;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.setting-row.harness-row span {
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
 .harness-toggle {
-  position: relative;
   width: 44px;
   height: 24px;
-  background: #333333;
-  border: 1px solid #555555;
-  border-radius: 24px;
+  background: #2d2d2d;
+  border: 1px solid #4a4a4a;
+  border-radius: 14px;
   appearance: none;
   outline: none;
   cursor: pointer;
   transition: background 0.2s, border-color 0.2s;
+  position: relative;
 }
 .harness-toggle::before {
   content: '';
@@ -230,7 +285,8 @@ a { color: #ffffff; }
   height: 20px;
   background: #ffffff;
   border-radius: 50%;
-  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.2s ease;
 }
 .harness-toggle:checked {
   background: #007aff;
@@ -239,8 +295,22 @@ a { color: #ffffff; }
 .harness-toggle:checked::before {
   transform: translateX(20px);
 }
+.harness-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #cccccc;
+  cursor: pointer;
+  margin: 0;
+}
+
 .harness-toggle:focus {
   border-color: #007aff;
+  outline: none;
+}
+.harness-toggle:active::before {
+  transform: scale(0.95);
 }
 
 .menu-item {

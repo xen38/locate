@@ -627,10 +627,17 @@ class IndexingEngine {
         const sessions = await this._getFileSessions(filePath)
         // Filter out sessions that have no real content (not actual conversations)
         const validSessions = sessions.filter(s => {
-          if (!s.messages || s.messages.length === 0) return false
           // Skip sessions with numeric-only IDs (not real conversations)
           if (/^\d+$/.test(String(s.sessionId || ''))) return false
           if (/^\d+$/.test(String(s.title || ''))) return false
+          // Must have a valid title
+          if (!s.title || s.title.trim().length === 0) return false
+
+          // Allow sessions with no local messages (e.g. Codex/ChatGPT where
+          // message content is stored remotely). These still have a valid
+          // session id and title.
+          if (!s.messages || s.messages.length === 0) return true
+
           const hasContent = s.messages.some(m => {
             const c = typeof m.content === 'string' ? m.content : (m.content != null ? String(m.content) : '')
             return c.trim().length > 0
