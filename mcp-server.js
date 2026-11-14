@@ -15,6 +15,7 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 const { IndexingEngine } = require('./packages/core/index')
+const bm = require('./packages/core/brainmaxxing')
 
 // ── Configuration ──────────────────────────────────────────────────────────
 
@@ -84,7 +85,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: 'locate_search',
+        name: 'syn_search',
         description: 'Search across all indexed archived sessions using full-text search (FTS5). Returns ranked results with excerpts, session metadata, and source references.',
         inputSchema: {
           type: 'object',
@@ -118,7 +119,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'locate_get_session',
+        name: 'syn_get_session',
         description: 'Retrieve a complete indexed session by session ID, including all messages.',
         inputSchema: {
           type: 'object',
@@ -132,7 +133,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'locate_get_context',
+        name: 'syn_get_context',
         description: 'Retrieve messages surrounding a specific message index within a session.',
         inputSchema: {
           type: 'object',
@@ -162,7 +163,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'locate_list_sessions',
+        name: 'syn_list_sessions',
         description: 'List all indexed sessions across all registered harnesses.',
         inputSchema: {
           type: 'object',
@@ -181,7 +182,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'locate_list_harnesses',
+        name: 'syn_list_harnesses',
         description: 'List all registered harness directories and their indexing status.',
         inputSchema: {
           type: 'object',
@@ -189,7 +190,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'locate_add_harness',
+        name: 'syn_add_harness',
         description: 'Register a new directory as a harness source for indexing.',
         inputSchema: {
           type: 'object',
@@ -207,7 +208,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'locate_index_source',
+        name: 'syn_index_source',
         description: 'Index a specific registered harness directory. Scans session files and adds them to the FTS5 search index.',
         inputSchema: {
           type: 'object',
@@ -221,7 +222,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'locate_index_all',
+        name: 'syn_index_all',
         description: 'Index all registered harness directories that have not yet been indexed.',
         inputSchema: {
           type: 'object',
@@ -229,11 +230,100 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'locate_status',
+        name: 'syn_status',
         description: 'Return indexing health, source counts, session counts, and engine availability.',
         inputSchema: {
           type: 'object',
           properties: {},
+        },
+      },
+      {
+        name: 'syn_read_brain',
+        description: 'Read a brain/memory file from the Memory Vault.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              description: 'Relative path of the brain file to read (e.g. memories/some-file.md)',
+            },
+          },
+          required: ['path'],
+        },
+      },
+      {
+        name: 'syn_write_brain',
+        description: 'Write content to a brain/memory file in the Memory Vault.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              description: 'Relative path of the brain file to write',
+            },
+            content: {
+              type: 'string',
+              description: 'Content to write to the brain file',
+            },
+          },
+          required: ['path', 'content'],
+        },
+      },
+      {
+        name: 'syn_reflect',
+        description: 'Run /reflect on a session to extract learnings and write to Memory Vault.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sessionId: {
+              type: 'string',
+              description: 'Session ID to reflect on',
+            },
+          },
+        },
+      },
+      {
+        name: 'syn_meditate',
+        description: 'Run /meditate to audit the brain vault and extract principles.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'syn_ruminate',
+        description: 'Run /ruminate to mine archived sessions for patterns.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'syn_plan',
+        description: 'Run /plan to break a task into phased plans.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            task: {
+              type: 'string',
+              description: 'Task description to plan',
+            },
+          },
+          required: ['task'],
+        },
+      },
+      {
+        name: 'syn_review',
+        description: 'Run /review to review code or plans against principles.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            content: {
+              type: 'string',
+              description: 'Content to review',
+            },
+          },
+          required: ['content'],
         },
       },
     ],
@@ -245,7 +335,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case 'locate_search': {
+      case 'syn_search': {
         const results = engine.search(args.query, {
           harness: args.harness || undefined,
           role: args.role || undefined,
@@ -280,7 +370,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case 'locate_get_session': {
+      case 'syn_get_session': {
         const session = engine.getSession(args.sessionId)
         if (!session) {
           return {
@@ -311,7 +401,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case 'locate_get_context': {
+      case 'syn_get_context': {
         const ctx = engine.getContext(args.sessionId, args.messageIndex, args.before || 5, args.after || 5)
         if (!ctx) {
           return {
@@ -329,7 +419,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case 'locate_list_sessions': {
+      case 'syn_list_sessions': {
         const sessions = engine.listSessions({
           harness: args.harness || undefined,
           limit: args.limit || 100,
@@ -360,7 +450,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case 'locate_list_harnesses': {
+      case 'syn_list_harnesses': {
         const sources = engine.listSources()
         return {
           content: [
@@ -389,7 +479,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case 'locate_add_harness': {
+      case 'syn_add_harness': {
         try {
           const sourceId = engine.addSource(args.dirPath, args.harness || undefined)
           return {
@@ -402,7 +492,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     path: path.resolve(args.dirPath),
                     added: args.dirPath,
                   status: 'pending',
-                  note: 'Source registered. Call locate_index_source or locate_index_all to index sessions.',
+                  note: 'Source registered. Call syn_index_source or syn_index_all to index sessions.',
                 },
                 null,
                 2
@@ -418,7 +508,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       }
 
-      case 'locate_index_source': {
+      case 'syn_index_source': {
       try {
         const normalized = path.resolve(args.dirPath)
         const sources = engine.listSources()
@@ -457,7 +547,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       }
 
-      case 'locate_index_all': {
+      case 'syn_index_all': {
       try {
         const result = engine.indexAllSources()
         return {
@@ -485,7 +575,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       }
 
-      case 'locate_status': {
+      case 'syn_status': {
         const sources = engine.listSources()
         const sessionCount = engine.countSessions()
         const indexedSources = sources.filter(s => s.status === 'indexed').length
@@ -519,6 +609,67 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               ),
             },
           ],
+        }
+      }
+
+      case 'syn_read_brain': {
+        const result = bm.brainRead(args.path)
+        if (!result.ok) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: result.error }, null, 2) }],
+            isError: true,
+          }
+        }
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        }
+      }
+
+      case 'syn_write_brain': {
+        const result = bm.brainWrite(args.path, args.content)
+        if (!result.ok) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: result.error }, null, 2) }],
+            isError: true,
+          }
+        }
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        }
+      }
+
+      case 'syn_reflect': {
+        const result = await bm.reflect(args.sessionId || undefined, engine)
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        }
+      }
+
+      case 'syn_meditate': {
+        const result = await bm.meditate(engine)
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        }
+      }
+
+      case 'syn_ruminate': {
+        const result = await bm.ruminate(engine)
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        }
+      }
+
+      case 'syn_plan': {
+        const result = await bm.plan(args.task, engine)
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        }
+      }
+
+      case 'syn_review': {
+        const result = await bm.review(args.content, engine)
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         }
       }
 
