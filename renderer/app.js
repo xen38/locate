@@ -14,6 +14,9 @@ const setup = () => {
   // DOM elements
   const terminalInput = document.getElementById('terminalInput')
   const terminalOutput = document.getElementById('terminalOutput')
+  const terminalColumn = document.querySelector('.terminal-column')
+  const btnCloseTerminal = document.getElementById('btnCloseTerminal')
+  const searchInput = document.getElementById('searchInput')
   const menuBtn = document.getElementById('menuBtn')
   const menuPanel = document.getElementById('menuPanel')
   const sessionList = document.getElementById('sessionList')
@@ -60,6 +63,8 @@ const setup = () => {
   let confirmResolve = null
   let terminalHistory = []
   let terminalHistoryIndex = -1
+  let terminalVisible = true
+  let searchQuery = ''
 
   // Toggle menu
   function toggleMenu(e) {
@@ -269,6 +274,17 @@ const setup = () => {
     }
   })
 
+  // Close terminal column toggle
+  btnCloseTerminal.addEventListener('click', (e) => {
+    e.stopPropagation()
+    terminalVisible = !terminalVisible
+    if (terminalVisible) {
+      terminalColumn.style.display = ''
+    } else {
+      terminalColumn.style.display = 'none'
+    }
+  })
+
   async function executeTerminalCommand(raw) {
     const parts = raw.split(/\s+/)
     const cmd = parts[0].toLowerCase()
@@ -446,8 +462,83 @@ const setup = () => {
     })
   }
 
-  // ── Search input (kept for backward compat, now delegates to terminal) ──
-  // The old searchInput is removed; use /locate in the terminal instead.
+  // ── Search bar (top, search-only, no terminal features) ──
+  searchInput.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      await performSearch()
+    }
+  })
+
+  async function performSearch() {
+    const q = searchInput.value.trim()
+    if (!q) {
+      renderSessionList(allSessions)
+      searchQuery = ''
+      return
+    }
+    searchQuery = q
+    try {
+      const results = await synAPI.searchSessions(q, { batchSize })
+      renderSearchResultsList(results, q)
+    } catch (err) {
+      console.error('Search failed:', err)
+      sessionList.innerHTML = `<div style="padding:12px;color:#ff6666;font-size:13px">Search failed: ${escapeHtml(err.message)}</div>`
+    }
+  }
+
+  function renderSearchResultsList(results, query) {
+    emptyState.classList.add('hidden')
+    emptyState.style.display = 'none'
+    sessionView.classList.add('hidden')
+    sessionView.style.display = 'none'
+    sessionList.innerHTML = ''
+
+    const title = document.createElement('div')
+    title.style.padding = '8px 12px'
+    title.style.fontSize = '12px'
+    title.style.color = '#888888'
+    title.style.borderBottom = '1px solid #333333'
+    title.textContent = `Search results for "${escapeHtml(query)}" (${results.length})`
+    sessionList.appendChild(title)
+
+    if (!results || results.length === 0) {
+      const empty = document.createElement('div')
+      empty.style.padding = '12px'
+      empty.style.color = '#666666'
+      empty.style.fontSize = '13px'
+      empty.style.fontStyle = 'italic'
+      empty.textContent = 'No results found.'
+      sessionList.appendChild(empty)
+      return
+    }
+
+    const fragment = document.createDocumentFragment()
+    results.forEach((r) => {
+      const item = document.createElement('div')
+      item.className = 'session-item'
+      item.innerHTML = `
+        <div class="label">${highlightText(escapeHtml(r.title || ''), query)}</div>
+        <div class="harness">${escapeHtml(r.harness || '')}</div>
+      `
+      item.addEventListener('click', () => {
+        selectedSessionId = r.id
+        searchQuery = ''
+        searchInput.value = ''
+        renderSessionList(allSessions)
+        loadSessionContent(r)
+      })
+      fragment.appendChild(item)
+    })
+    sessionList.appendChild(fragment)
+  }
+
+  function highlightText(html, query) {
+    if (!query) return html
+    const escaped = escapeHtml(query)
+    const re = new RegExp(`(${escaped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
+    return html.replace(re, '<span class="highlight">$1</span>')
+  }
 
   // Close session
   btnCloseSession.addEventListener('click', (e) => {
@@ -681,19 +772,18 @@ const setup = () => {
       const roleLabel = role.charAt(0).toUpperCase() + role.slice(1)
       const ts = m.timestamp ? ` <span style="color:#666;font-size:11px;margin-left:8px">${escapeHtml(m.timestamp)}</span>` : ''
       const content = escapeHtml(m.content || '')
+      const highlighted = searchQuery ? highlightText(content, searchQuery) : content
       parts.push(`
         <div class="message" style="margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #222;">
           <div style="display:flex;align-items:baseline;margin-bottom:6px;">
             <span style="color:${roleColor};font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">${roleLabel}</span>${ts}
           </div>
-          <div style="color:#e0e0e0;line-height:1.6;white-space:pre-wrap;font-size:14px">${content}</div>
+          <div style="color:#e0e0e0;line-height:1.6;white-space:pre-wrap;font-size:14px">${highlighted}</div>
         </div>
       `)
     })
     sessionContent.innerHTML = parts.join('')
   }
-
-  // ── performSearch removed — replaced by terminal /locate command ──
 
   async function scanAndAutodetectHarnesses() {
     try {

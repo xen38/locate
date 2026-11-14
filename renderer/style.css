@@ -42,13 +42,41 @@ a { color: #ffffff; }
 
 
 
-/* Terminal (replaces search bar) */
+/* Terminal column (right side) */
+.terminal-column {
+  width: 340px;
+  background: #0a0a0a;
+  border-left: 1px solid #333333;
+  display: flex;
+  flex-direction: column;
+  min-width: 280px;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #cccccc;
+  border-bottom: 1px solid #333333;
+}
+
+.terminal-title {
+  color: #00ccff;
+}
+
 .terminal-wrap {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 280px;
-  max-width: 600px;
+  max-width: none;
+  padding: 8px;
+  overflow: hidden;
 }
 
 .terminal-input-row {
@@ -595,6 +623,13 @@ a { color: #ffffff; }
   margin: 12px 0;
   padding-left: 16px;
   color: #888888;
+}
+
+.session-content .highlight {
+  background: #ffff00;
+  color: #000000;
+  padding: 0 2px;
+  border-radius: 2px;
 }
 
 .session-content hr {

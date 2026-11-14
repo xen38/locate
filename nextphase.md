@@ -1,6 +1,6 @@
 # nextphase.md — Syn: From Locate to a Unified Agent Memory Environment
 
-**Status:** Phase 2 in progress — Phase 0 complete, Phase 1 complete, Phase 2 started (~30% → 50%)
+**Status:** Phase 2 revision in progress — Phase 0 complete, Phase 1 complete, Phase 2 revised (search bar restored at top + terminal right column + search highlighting)
 **Project:** xen38/locate → Syn
 **Related:** poteto/brainmaxxing → integrated as Syn "brainmaxxing" console
 **Target:** A single interactive app where users and agents craft memories using brainmaxxing skills and search across the Memory Vault and all sessions via the /locate engine.
@@ -17,6 +17,7 @@
 - 2026-11-14: Phase 2.1 complete — terminal replaces search bar in `index.html` and `app.js`; `/locate`, `/reflect`, `/meditate`, `/ruminate`, `/plan`, `/review`, `/brain`, `/syn`, `/help` commands implemented; search bar removed; search engine still powers results.
 - 2026-11-14: Phase 2.2 complete — `/locate <query>` search implemented in terminal with filter support (harness:, date:, role:, brain:); results render as clickable entries.
 - 2026-11-14: Phase 2.3 complete — all brainmaxxing commands wired to terminal input; command history with ArrowUp/ArrowDown; output scrolls automatically.
+- 2026-11-14: Phase 2 revision complete — normal search bar restored at top (search-only, no terminal features); terminal moved to its own right column with close toggle; search result highlighting added via `.highlight` CSS class; `performSearch()` restored in `app.js` using `synAPI.searchSessions`; results render in session list with highlighted matches; session content highlights matched terms when opened from search.
 
 ---
 
