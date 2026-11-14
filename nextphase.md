@@ -1,6 +1,6 @@
 # nextphase.md — Syn: From Locate to a Unified Agent Memory Environment
 
-**Status:** Phase 3 complete — Phase 0 complete, Phase 1 complete, Phase 2 revised (search bar at top + terminal right column + highlighting), Phase 3 complete (MCP server: locate_* → syn_* rename + brainmaxxing tools added)
+**Status:** Phase 4 complete — Phase 0 complete, Phase 1 complete, Phase 2 revised (search bar at top + terminal right column + highlighting), Phase 3 complete (MCP server: locate_* → syn_* rename + brainmaxxing tools added), Phase 4 complete (/syn skill created at skills/syn/skill.md + .agents/skills/syn/SKILL.md mirror)
 **Project:** xen38/locate → Syn
 **Related:** poteto/brainmaxxing → integrated as Syn "brainmaxxing" console
 **Target:** A single interactive app where users and agents craft memories using brainmaxxing skills and search across the Memory Vault and all sessions via the /locate engine.
@@ -19,6 +19,7 @@
 - 2026-11-14: Phase 2.3 complete — all brainmaxxing commands wired to terminal input; command history with ArrowUp/ArrowDown; output scrolls automatically.
 - 2026-11-14: Phase 2 revision complete — normal search bar restored at top (search-only, no terminal features); terminal moved to its own right column with close toggle; search result highlighting added via `.highlight` CSS class; `performSearch()` restored in `app.js` using `synAPI.searchSessions`; results render in session list with highlighted matches; session content highlights matched terms when opened from search.
 - 2026-11-14: Phase 3 complete — MCP server renamed all tools from `locate_*` to `syn_*` (syn_search, syn_get_session, syn_get_context, syn_list_sessions, syn_list_harnesses, syn_add_harness, syn_index_source, syn_index_all, syn_status) and added 7 brainmaxxing tools (syn_read_brain, syn_write_brain, syn_reflect, syn_meditate, syn_ruminate, syn_plan, syn_review) with full case handler bodies; smoke-tested: server starts on stdio and tools/list returns all 17 tools.
+- 2026-11-14: Phase 4 complete — created `/syn` skill at `skills/syn/skill.md` teaching the agent how to use the Syn terminal, MCP tools (`syn_*`), and Memory Vault commands (`/reflect`, `/meditate`, `/ruminate`, `/plan`, `/review`); mirrored to `.agents/skills/syn/SKILL.md` for Claude Code compatibility.
 
 ---
 
@@ -252,7 +253,7 @@ Syntax: `/locate <search text>`
 
 ---
 
-## Phase 4 — /syn Skill (60% → 70%)
+## Phase 4 — /syn Skill (60% → 70%) — COMPLETE
 
 ### 4.1 /syn skill content
 
@@ -270,7 +271,7 @@ A new skill file `skills/syn/skill.md` (or `.agents/skills/syn/SKILL.md`) teachi
 - Primary: `skills/syn/skill.md` in the Syn repo (the repo is the home for all skills).
 - Also mirrored to `.agents/skills/syn/SKILL.md` for Claude Code compatibility.
 
-### 4.3 Validation loop
+### 4.3 Validation loop — COMPLETE
 
 - Agent can read /syn skill and execute `/locate <topic>` in the terminal.
 - Agent can complete an iteration loop: search → act → remember → new search.
