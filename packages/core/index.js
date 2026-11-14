@@ -615,6 +615,12 @@ class IndexingEngine {
         if (isNonSessionFile(filePath)) continue
 
         const fp = this._fingerprint(filePath)
+        // Skip extremely large files that could crash the indexer
+        const MAX_INDEX_FILE_SIZE = 200 * 1024 * 1024 // 200 MB
+        if (fp.size > MAX_INDEX_FILE_SIZE) {
+          console.log(`[ENGINE] indexSource: skipping oversized file ${filePath} (${(fp.size / 1024 / 1024).toFixed(1)} MB)`)
+          continue
+        }
         const existing = this.db
           .prepare('SELECT file_hash, file_mtime, file_size FROM sessions WHERE file_path = ?')
           .get(filePath)
@@ -812,6 +818,12 @@ class IndexingEngine {
       const batch = files.slice(i, i + batchSize)
       for (const filePath of batch) {
         const fp = this._fingerprint(filePath)
+        // Skip extremely large files that could crash the indexer
+        const MAX_INDEX_FILE_SIZE = 200 * 1024 * 1024 // 200 MB
+        if (fp.size > MAX_INDEX_FILE_SIZE) {
+          console.log(`[ENGINE] indexSource: skipping oversized file ${filePath} (${(fp.size / 1024 / 1024).toFixed(1)} MB)`)
+          continue
+        }
         const existing = this.db
           .prepare('SELECT file_hash, file_mtime, file_size FROM sessions WHERE file_path = ?')
           .get(filePath)

@@ -1,3 +1,13 @@
+// Global error handlers to capture crashes
+window.onerror = (msg, url, line, col, error) => {
+  console.error('UNCAUGHT ERROR:', msg, 'at', url, ':', line, ':', col, error)
+  return true
+}
+
+window.onunhandledrejection = (event) => {
+  console.error('UNHANDLED REJECTION:', event.reason)
+}
+
 const setup = () => {
   const locateAPI = window.locateAPI
 
