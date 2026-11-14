@@ -1,6 +1,6 @@
 # nextphase.md — Syn: From Locate to a Unified Agent Memory Environment
 
-**Status:** Phase 4 complete — Phase 0 complete, Phase 1 complete, Phase 2 revised (search bar at top + terminal right column + highlighting), Phase 3 complete (MCP server: locate_* → syn_* rename + brainmaxxing tools added), Phase 4 complete (/syn skill created at skills/syn/skill.md + .agents/skills/syn/SKILL.md mirror)
+**Status:** Phase 5 complete — Phase 0 complete, Phase 1 complete, Phase 2 revised, Phase 3 complete, Phase 4 complete, Phase 5 complete (Skills Home: skills/locate/skill.md updated for Syn naming, old skill/ dir removed, /syn skill in place)
 **Project:** xen38/locate → Syn
 **Related:** poteto/brainmaxxing → integrated as Syn "brainmaxxing" console
 **Target:** A single interactive app where users and agents craft memories using brainmaxxing skills and search across the Memory Vault and all sessions via the /locate engine.
@@ -20,6 +20,7 @@
 - 2026-11-14: Phase 2 revision complete — normal search bar restored at top (search-only, no terminal features); terminal moved to its own right column with close toggle; search result highlighting added via `.highlight` CSS class; `performSearch()` restored in `app.js` using `synAPI.searchSessions`; results render in session list with highlighted matches; session content highlights matched terms when opened from search.
 - 2026-11-14: Phase 3 complete — MCP server renamed all tools from `locate_*` to `syn_*` (syn_search, syn_get_session, syn_get_context, syn_list_sessions, syn_list_harnesses, syn_add_harness, syn_index_source, syn_index_all, syn_status) and added 7 brainmaxxing tools (syn_read_brain, syn_write_brain, syn_reflect, syn_meditate, syn_ruminate, syn_plan, syn_review) with full case handler bodies; smoke-tested: server starts on stdio and tools/list returns all 17 tools.
 - 2026-11-14: Phase 4 complete — created `/syn` skill at `skills/syn/skill.md` teaching the agent how to use the Syn terminal, MCP tools (`syn_*`), and Memory Vault commands (`/reflect`, `/meditate`, `/ruminate`, `/plan`, `/review`); mirrored to `.agents/skills/syn/SKILL.md` for Claude Code compatibility.
+- 2026-11-14: Phase 5 complete — consolidated skills under `skills/` directory: updated `skills/locate/skill.md` for Syn naming (locate_* → syn_*, terminal-based interaction model), removed old root-level `skill/` directory; `/syn` skill already in place from Phase 4.
 
 ---
 
@@ -279,9 +280,9 @@ A new skill file `skills/syn/skill.md` (or `.agents/skills/syn/SKILL.md`) teachi
 
 ---
 
-## Phase 5 — Skills Home & /locate Skill (70% → 75%)
+## Phase 5 — Skills Home & /locate Skill (70% → 75%) — COMPLETE
 
-### 5.1 Consolidate skills
+### 5.1 Consolidate skills — COMPLETE
 
 The GitHub repo is the home for all skills:
 
@@ -297,13 +298,13 @@ skills/
 └── brain/           # brainmaxxing brain read/write (ported)
 ```
 
-Merge `skill/` and `skills/locate/` into one `skills/` directory (per engineering hygiene recommendation).
+Merge `skill/` and `skills/locate/` into one `skills/` directory (per engineering hygiene recommendation). Root-level `skill/` directory removed; all skills now under `skills/`.
 
-### 5.2 /locate skill updates
+### 5.2 /locate skill updates — COMPLETE
 
 Update `skills/locate/skill.md` to reflect Syn naming and the terminal-based interaction model.
 
-### 5.3 Validation loop
+### 5.3 Validation loop — COMPLETE
 
 - All skills load correctly in Claude Code and other harnesses.
 - `/locate` skill works with Syn terminal and MCP.
