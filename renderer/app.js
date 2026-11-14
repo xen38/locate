@@ -13,6 +13,7 @@ const setup = () => {
   const metaHarness = document.getElementById('metaHarness')
   const metaPath = document.getElementById('metaPath')
   const harnessList = document.getElementById('harnessList')
+  const harnessSettingsEl = document.getElementById('harnessSettings')
   const btnScanHarnesses = document.getElementById('btnScanHarnesses')
   const btnAddFolder = document.getElementById('btnAddFolder')
   const settingBatchSize = document.getElementById('settingBatchSize')
@@ -36,6 +37,7 @@ const setup = () => {
   let isSearching = false
   let menuOpen = false
   let batchSize = 10
+  let harnessSettings = {}
   let ctxTargetSessionId = null
   let ctxTargetSession = null
   let confirmResolve = null
@@ -50,6 +52,7 @@ const setup = () => {
     if (menuOpen) {
       menuPanel.style.display = 'block'
       renderHarnesses()
+      renderHarnessSettings()
     } else {
       menuPanel.style.display = 'none'
     }
@@ -225,6 +228,15 @@ const setup = () => {
       const config = await locateAPI.getConfig()
       batchSize = config.batchSize || 10
       settingBatchSize.value = String(batchSize)
+
+      // Load harness enable/disable settings
+      try {
+        const settings = await locateAPI.getHarnessSettings()
+        harnessSettings = Object.fromEntries(settings.map(s => [s.name, s.enabled]))
+        renderHarnessSettings()
+      } catch (e) {
+        console.error('Failed to load harness settings:', e)
+      }
 
       // Auto-detect harnesses on first run if none configured
       if (!config.harnessDirectories || config.harnessDirectories.length === 0) {
@@ -449,6 +461,46 @@ const setup = () => {
         await loadSessions()
       })
       harnessList.appendChild(item)
+    })
+  }
+
+  // Render per-harness enable/disable toggles
+  function renderHarnessSettings() {
+    if (!harnessSettingsEl) return
+    const names = Object.keys(harnessSettings).sort()
+    harnessSettingsEl.innerHTML = ''
+
+    if (names.length === 0) {
+      harnessSettingsEl.innerHTML = '<div style="padding:8px;color:#666;font-size:12px">No harnesses detected yet.</div>'
+      return
+    }
+
+    names.forEach((name) => {
+      const enabled = harnessSettings[name] !== false
+      const row = document.createElement('div')
+      row.className = 'setting-row harness-row'
+      row.innerHTML = `
+        <label class="harness-label" data-harness="${escapeHtml(name)}">
+          <input type="checkbox" class="harness-toggle" data-harness="${escapeHtml(name)}" ${enabled ? 'checked' : ''}>
+          <span>${escapeHtml(name)}</span>
+        </label>
+      `
+      const toggle = row.querySelector('.harness-toggle')
+      toggle.addEventListener('change', async (e) => {
+        const on = e.target.checked
+        harnessSettings[name] = on
+        try {
+          await locateAPI.setHarnessSetting(name, on)
+          await loadSessions()
+          renderHarnessSettings()
+        } catch (err) {
+          console.error('Failed to save harness setting:', err)
+          e.target.checked = !on
+          harnessSettings[name] = !on
+          alert('Failed to save harness setting: ' + err.message)
+        }
+      })
+      harnessSettingsEl.appendChild(row)
     })
   }
 
