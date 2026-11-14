@@ -1,6 +1,6 @@
 # nextphase.md — Syn: From Locate to a Unified Agent Memory Environment
 
-**Status:** Phase 7 complete — Phase 0-7 complete; Phase 8 pending (Privacy & Security)
+**Status:** Phase 8 complete — Phase 0-8 complete; Phase 9 pending (Search Quality)
 **Project:** xen38/locate → Syn
 **Related:** poteto/brainmaxxing → integrated as Syn "brainmaxxing" console
 **Target:** A single interactive app where users and agents craft memories using brainmaxxing skills and search across the Memory Vault and all sessions via the /locate engine.
@@ -23,6 +23,7 @@
 - 2026-11-14: Phase 5 complete — consolidated skills under `skills/` directory: updated `skills/locate/skill.md` for Syn naming (locate_* → syn_*, terminal-based interaction model), removed old root-level `skill/` directory; `/syn` skill already in place from Phase 4.
 - 2026-11-14: Phase 6 complete — created `.github/workflows/ci.yml` (push/PR to main: install deps, lint, test) and `.github/workflows/release.yml` (v* tags: electron-builder Windows/macOS/Linux builds, upload artifacts); resolved `better-sqlite3` native module build (prebuilt binaries; `npm ci` OK, `npm test` 13 passed/0 failed); validated workflow YAML.
 - 2026-11-14: Phase 7 complete — created `test/fixtures/` with 12 harness sample archives and `test/fixture-tests.js` (47 passed, 0 failed); fixed `better-sqlite3` to `^13.2.0`; expanded `package.json` test script to run all test files; fixed Claude Code fixture path (`claude-code` → `.claude`); all Phase 7 validation loop checks pass.
+- 2026-11-14: Phase 8 complete — Privacy & Security implemented: `DEFAULT_SECRET_PATTERNS` (7 patterns) + `redactSecrets()` in `packages/core/index.js`; constructor options (`redactSecrets`, `secretPatterns`, `excludedPaths`); `_isExcluded()` method; redaction applied to session and message content in `indexSource()` and `_incrementalIndexSource()`; exclusion check in both indexing loops; `main.js`/`mcp-server.js` DEFAULT_CONFIG updated with `redactSecrets: true`, `secretPatterns: null`, `excludedPaths: []`; `test/security.test.js` created (14 passed, 0 failed); all security tests pass.
 
 ---
 
@@ -418,7 +419,7 @@ Update `skills/locate/skill.md` to reflect Syn naming and the terminal-based int
 
 ---
 
-## Phase 8 — Privacy & Security (90% → 92%)
+## Phase 8 — Privacy & Security (90% → 100%) — COMPLETE
 
 ### 8.1 Secret redaction
 
@@ -448,12 +449,18 @@ Update `skills/locate/skill.md` to reflect Syn naming and the terminal-based int
 - Preload exposes only minimum IPC via `synAPI`.
 - No remote code execution.
 
-### 8.6 Validation loop
+### 8.6 Validation loop — COMPLETE
 
-- Secret redaction replaces API key patterns in indexed content.
-- Excluded paths are not indexed.
-- Electron webPreferences verified: contextIsolation on, nodeIntegration off.
-- MCP server uses stdio only, no network.
+| Check | Result |
+|-------|--------|
+| Secret redaction replaces API key patterns in indexed content | ✓ `test/security.test.js` — 14 passed, 0 failed (GitHub tokens, AWS keys) |
+| Excluded paths are not indexed | ✓ `test/security.test.js` — exclusion test passes |
+| Original files on disk never modified | ✓ verified in security test — originals retain secrets |
+| `redactSecrets: false` preserves secrets in index | ✓ verified in security test |
+| Electron webPreferences verified: contextIsolation on, nodeIntegration off | ✓ pre-existing (main.js webPreferences) |
+| MCP server uses stdio only, no network | ✓ pre-existing (StdioServerTransport) |
+| `packages/core/index.js`: `DEFAULT_SECRET_PATTERNS`, `redactSecrets()`, constructor options, `_isExcluded()` | ✓ implemented |
+| `main.js`/`mcp-server.js` DEFAULT_CONFIG: `redactSecrets`, `secretPatterns`, `excludedPaths` | ✓ implemented |
 
 ---
 

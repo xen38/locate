@@ -21,6 +21,35 @@ const { AdapterRegistry, getSessionValidator } = require('../adapters/registry')
 // Supported session file extensions
 const SUPPORTED_EXTS = new Set(['.md', '.txt', '.json', '.jsonl', '.db', '.sqlite'])
 
+// ── Secret redaction patterns (Phase 8) ──────────────────────────────────
+// Applied at index time to redact secrets from indexed content.
+// Original files are never modified — only the indexed copy is redacted.
+const DEFAULT_SECRET_PATTERNS = [
+  // GitHub personal access tokens (classic and fine-grained)
+  { name: 'GitHub token', pattern: /gh[pousr]_ [A-Za-z0-9_]{36,}/g, replacement: '[REDACTED_GITHUB_TOKEN]' },
+  { name: 'GitHub fine-grained token', pattern: /ghp_[A-Za-z0-9_]{36,}/g, replacement: '[REDACTED_GITHUB_TOKEN]' },
+  // AWS access keys
+  { name: 'AWS access key', pattern: /AKIA[0-9A-Z]{16}/g, replacement: '[REDACTED_AWS_KEY]' },
+  { name: 'AWS secret key', pattern: /[0-9a-zA-Z/+]{40}/g, replacement: '[REDACTED_AWS_SECRET]' },
+  // Generic API keys (sk-, pk-, etc.)
+  { name: 'Generic API key', pattern: /(sk|pk|rk|sk-live|sk-test)_[A-Za-z0-9]{24,}/g, replacement: '[REDACTED_API_KEY]' },
+  // Bearer tokens
+  { name: 'Bearer token', pattern: /Bearer\s+[A-Za-z0-9\-_=.]+\b/gi, replacement: 'Bearer [REDACTED_TOKEN]' },
+  // Passwords in config-style assignments
+  { name: 'Password assignment', pattern: /(password|passwd|pwd|secret|api_key|apikey)\s*[:=]\s*['"]?[^\s'"]{8,}['"]?/gi, replacement: '$1: [REDACTED]' },
+  // Private keys (PEM blocks)
+  { name: 'Private key PEM', pattern: /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----/g, replacement: '-----BEGIN REDACTED PRIVATE KEY-----\n[REDACTED]\n-----END REDACTED PRIVATE KEY-----' },
+]
+
+function redactSecrets(content, patterns) {
+  if (!content || typeof content !== 'string') return content
+  let redacted = content
+  for (const p of patterns) {
+    redacted = redacted.replace(p.pattern, p.replacement)
+  }
+  return redacted
+}
+
 let SQL = null
 const sqlPromise = initSqlJs({
   locateFile: file => path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist', file)
@@ -82,11 +111,15 @@ function isNonSessionFile(filePath) {
 }
 
 class IndexingEngine {
-  constructor(dbPath) {
+  constructor(dbPath, options = {}) {
     this.dbPath = dbPath
     this.db = null
     this.initialized = false
     this.registry = new AdapterRegistry()
+    // Phase 8: Privacy & Security options
+    this.redactSecrets = options.redactSecrets !== false // default: enabled
+    this.secretPatterns = options.secretPatterns || DEFAULT_SECRET_PATTERNS
+    this.excludedPaths = options.excludedPaths || [] // array of path substrings/patterns
   }
 
   // ── Initialization ────────────────────────────────────────────────────
@@ -189,6 +222,19 @@ class IndexingEngine {
     } catch (e) {
       return { mtime: 0, size: 0, hash: '' }
     }
+  }
+
+  // Phase 8: Check if a file path matches any exclusion pattern
+  _isExcluded(filePath) {
+    if (!this.excludedPaths || this.excludedPaths.length === 0) return false
+    const normalized = path.resolve(filePath)
+    return this.excludedPaths.some(excl => {
+      const exclResolved = path.resolve(excl)
+      // Match if the excluded path is a prefix of the file path, or exact match
+      return normalized === exclResolved ||
+             normalized.startsWith(exclResolved + path.sep) ||
+             normalized.includes(exclResolved)
+    })
   }
 
   // ── Text extraction (read-only) ──────────────────────────────────────
@@ -615,6 +661,8 @@ class IndexingEngine {
       for (const filePath of batch) {
         // Skip known non-session files
         if (isNonSessionFile(filePath)) continue
+        // Phase 8: Skip excluded paths
+        if (this._isExcluded(filePath)) continue
 
         const fp = this._fingerprint(filePath)
         // Skip extremely large files that could crash the indexer
@@ -707,13 +755,14 @@ class IndexingEngine {
           fp.hash,
           session.createdAt || new Date(fp.mtime).toISOString(),
           contentHash,
-          session.content
+          this.redactSecrets ? redactSecrets(session.content, this.secretPatterns) : session.content
         ])
 
         this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(session.sessionId)
         for (const m of session.messages) {
           const mc = m.content
-          const contentStr = typeof mc === 'string' ? mc : String(mc != null ? mc : '')
+          let contentStr = typeof mc === 'string' ? mc : String(mc != null ? mc : '')
+          if (this.redactSecrets) contentStr = redactSecrets(contentStr, this.secretPatterns)
           insertMessage.run([
             session.sessionId,
             m.message_index ?? m.index ?? 0,
@@ -835,6 +884,8 @@ class IndexingEngine {
           console.log(`[ENGINE] indexSource: skipping oversized file ${filePath} (${(fp.size / 1024 / 1024).toFixed(1)} MB)`)
           continue
         }
+        // Phase 8: Skip excluded paths
+        if (this._isExcluded(filePath)) continue
         const existing = this.db
           .prepare('SELECT file_hash, file_mtime, file_size FROM sessions WHERE file_path = ?')
           .get(filePath)
@@ -878,17 +929,19 @@ class IndexingEngine {
           fp.hash,
           session.createdAt || new Date(fp.mtime).toISOString(),
           contentHash,
-          session.content
+          this.redactSecrets ? redactSecrets(session.content, this.secretPatterns) : session.content
         ])
 
         this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(session.sessionId)
         for (const m of session.messages) {
+          let contentStr = m.content || ''
+          if (this.redactSecrets) contentStr = redactSecrets(contentStr, this.secretPatterns)
           insertMessage.run([
             session.sessionId,
             m.message_index ?? m.index ?? 0,
             m.role,
             m.timestamp || '',
-            m.content || '',
+            contentStr,
             m.tool_calls ? JSON.stringify(m.tool_calls) : null
           ])
         }

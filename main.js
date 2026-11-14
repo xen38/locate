@@ -16,7 +16,11 @@ const DEFAULT_CONFIG = {
   harnessDirectories: [],
   batchSize: 10,
   windowBounds: { width: 1200, height: 800 },
-  harnessSettings: {}
+  harnessSettings: {},
+  // Phase 8: Privacy & Security
+  redactSecrets: true,
+  secretPatterns: null, // null = use built-in DEFAULT_SECRET_PATTERNS
+  excludedPaths: []
 }
 
 let config = { ...DEFAULT_CONFIG }
@@ -80,7 +84,11 @@ loadConfig()
 
 // ── Core Indexing Engine (shared with MCP server) ──────────────────────────
 
-const engine = new IndexingEngine(INDEX_DB_PATH)
+const engine = new IndexingEngine(INDEX_DB_PATH, {
+  redactSecrets: config.redactSecrets,
+  secretPatterns: config.secretPatterns,
+  excludedPaths: config.excludedPaths
+})
 
 let mainWindow = null
 

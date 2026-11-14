@@ -36,6 +36,10 @@ const INDEX_DB_PATH = path.join(
 const DEFAULT_CONFIG = {
   harnessDirectories: [],
   batchSize: 10,
+  // Phase 8: Privacy & Security
+  redactSecrets: true,
+  secretPatterns: null,
+  excludedPaths: []
 }
 
 let config = { ...DEFAULT_CONFIG }
@@ -64,7 +68,11 @@ loadConfig()
 
 // ── Core Indexing Engine ───────────────────────────────────────────────────
 
-const engine = new IndexingEngine(INDEX_DB_PATH)
+const engine = new IndexingEngine(INDEX_DB_PATH, {
+  redactSecrets: config.redactSecrets,
+  secretPatterns: config.secretPatterns,
+  excludedPaths: config.excludedPaths
+})
 engine.open().catch(e => console.error('[syn-mcp] Failed to open index:', e))
 
 // ── MCP Server ─────────────────────────────────────────────────────────────
