@@ -270,7 +270,7 @@ class AdapterRegistry {
     // Registered BEFORE SQLiteAdapter so opencode.db matches this adapter first.
     this.adapters.push(new OpencodeAdapter({ harness: 'OpenCode' }))
 
-    // Codex adapter - handles codex.db (better-sqlite3) for ChatGPT thread catalog.
+    // Codex adapter - handles codex.db (sql.js) for ChatGPT thread catalog.
     // Registered BEFORE SQLiteAdapter so codex.db matches this adapter first.
     this.adapters.push(new CodexAdapter({ harness: 'Codex' }))
 
