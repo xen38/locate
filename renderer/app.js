@@ -12,7 +12,8 @@ const setup = () => {
   const synAPI = window.synAPI
 
   // DOM elements
-  const searchInput = document.getElementById('searchInput')
+  const terminalInput = document.getElementById('terminalInput')
+  const terminalOutput = document.getElementById('terminalOutput')
   const menuBtn = document.getElementById('menuBtn')
   const menuPanel = document.getElementById('menuPanel')
   const sessionList = document.getElementById('sessionList')
@@ -57,6 +58,8 @@ const setup = () => {
   let ctxTargetSessionId = null
   let ctxTargetSession = null
   let confirmResolve = null
+  let terminalHistory = []
+  let terminalHistoryIndex = -1
 
   // Toggle menu
   function toggleMenu(e) {
@@ -227,14 +230,224 @@ const setup = () => {
     await synAPI.setConfig({ batchSize })
   })
 
-  // Search input
-  let searchDebounce = null
-  searchInput.addEventListener('input', (e) => {
-    clearTimeout(searchDebounce)
-    searchDebounce = setTimeout(() => {
-      performSearch(e.target.value)
-    }, 150)
+  // ── Terminal command input ────────────────────────────────────────────
+  terminalInput.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const raw = terminalInput.value.trim()
+      terminalInput.value = ''
+      if (!raw) return
+
+      // Add to history
+      terminalHistory.push(raw)
+      terminalHistoryIndex = terminalHistory.length
+
+      // Echo command
+      appendTerminalLine(`$ ${raw}`, 'cmd')
+
+      try {
+        await executeTerminalCommand(raw)
+      } catch (err) {
+        appendTerminalLine(`Error: ${err.message}`, 'error')
+      }
+      terminalOutput.scrollTop = terminalOutput.scrollHeight
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (terminalHistoryIndex > 0) {
+        terminalHistoryIndex--
+        terminalInput.value = terminalHistory[terminalHistoryIndex]
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (terminalHistoryIndex < terminalHistory.length - 1) {
+        terminalHistoryIndex++
+        terminalInput.value = terminalHistory[terminalHistoryIndex]
+      } else {
+        terminalHistoryIndex = terminalHistory.length
+        terminalInput.value = ''
+      }
+    }
   })
+
+  async function executeTerminalCommand(raw) {
+    const parts = raw.split(/\s+/)
+    const cmd = parts[0].toLowerCase()
+    const args = parts.slice(1)
+
+    switch (cmd) {
+      case '/locate': {
+        if (args.length === 0) {
+          appendTerminalLine('Usage: /locate <search query> [filters...]', 'warn')
+          appendTerminalLine('Filters: harness:X, date:YYYY-MM-DD, role:user, role:assistant, brain:X', 'warn')
+          return
+        }
+        const query = args.filter(a => !a.includes(':')).join(' ')
+        const filters = {}
+        args.filter(a => a.includes(':')).forEach(f => {
+          const [k, v] = f.split(':', 2)
+          filters[k] = v
+        })
+        appendTerminalLine(`/locate "${query}" ${JSON.stringify(filters)}`, 'cmd')
+        const results = await synAPI.searchSessions(query, { batchSize, filters })
+        renderSearchResults(results)
+        break
+      }
+
+      case '/reflect': {
+        const sessionId = args[0] || selectedSessionId
+        if (!sessionId) {
+          appendTerminalLine('Usage: /reflect <sessionId> (or select a session first)', 'warn')
+          return
+        }
+        const result = await synAPI.brainReflect(sessionId)
+        appendTerminalLine(`/reflect → ${result.path || 'done'}`, 'ok')
+        appendTerminalLine(`Learnings: ${result.learningsCount || 0}`, 'ok')
+        break
+      }
+
+      case '/meditate': {
+        const result = await synAPI.brainMeditate()
+        appendTerminalLine(`/meditate → ${result.path || 'done'}`, 'ok')
+        appendTerminalLine(`Files audited: ${result.filesAudited || 0}, principles: ${result.principlesExtracted || 0}, stale: ${result.staleNotes ? result.staleNotes.length : 0}`, 'ok')
+        break
+      }
+
+      case '/ruminate': {
+        const result = await synAPI.brainRuminate()
+        appendTerminalLine(`/ruminate → ${result.path || 'done'}`, 'ok')
+        appendTerminalLine(`Sessions scanned: ${result.sessionsScanned || 0}, patterns: ${result.patternsFound || 0}`, 'ok')
+        break
+      }
+
+      case '/plan': {
+        const task = args.join(' ')
+        if (!task) {
+          appendTerminalLine('Usage: /plan <task description>', 'warn')
+          return
+        }
+        const result = await synAPI.brainPlan(task)
+        appendTerminalLine(`/plan → ${result.path || 'done'}`, 'ok')
+        appendTerminalLine(`Task: ${result.task || task}`, 'ok')
+        break
+      }
+
+      case '/review': {
+        const content = args.join(' ')
+        if (!content) {
+          appendTerminalLine('Usage: /review <content to review>', 'warn')
+          return
+        }
+        const result = await synAPI.brainReview(content)
+        appendTerminalLine(`/review → ${result.path || 'done'}`, 'ok')
+        if (result.issues && result.issues.length) {
+          result.issues.forEach((issue, i) => {
+            appendTerminalLine(`  ${i + 1}. [${issue.severity}] ${issue.message}`, 'warn')
+          })
+        } else {
+          appendTerminalLine('No issues found.', 'ok')
+        }
+        break
+      }
+
+      case '/brain': {
+        const sub = args[0]
+        if (sub === 'list') {
+          const files = await synAPI.brainList()
+          appendTerminalLine('Brain files:', 'ok')
+          files.forEach(f => appendTerminalLine(`  [[${f}]]`, 'ok'))
+        } else if (sub === 'index') {
+          const result = await synAPI.brainIndex()
+          appendTerminalLine(`/brain index → ${result.files} files indexed`, 'ok')
+        } else if (sub === 'read') {
+          const path = args[1]
+          if (!path) {
+            appendTerminalLine('Usage: /brain read <path>', 'warn')
+            return
+          }
+          const result = await synAPI.brainRead(path)
+          if (result.ok) {
+            appendTerminalLine(`--- ${path} ---`, 'ok')
+            appendTerminalLine(result.content, 'ok')
+          } else {
+            appendTerminalLine(`Read failed: ${result.error}`, 'error')
+          }
+        } else if (sub === 'write') {
+          const path = args[1]
+          const content = args.slice(2).join(' ')
+          if (!path || !content) {
+            appendTerminalLine('Usage: /brain write <path> <content>', 'warn')
+            return
+          }
+          const result = await synAPI.brainWrite(path, content)
+          appendTerminalLine(`/brain write → ${result.path}`, 'ok')
+        } else {
+          appendTerminalLine('Usage: /brain <list|index|read <path>|write <path> <content>>', 'warn')
+        }
+        break
+      }
+
+      case '/syn': {
+        appendTerminalLine('/syn — Syn skill guidance', 'ok')
+        appendTerminalLine('Use /locate <query> to search sessions and Memory Vault.', 'ok')
+        appendTerminalLine('Use /reflect, /meditate, /ruminate, /plan, /review for brainmaxxing.', 'ok')
+        appendTerminalLine('Use /brain <read|write|list|index> for Memory Vault file ops.', 'ok')
+        appendTerminalLine('Click any search result to open the session.', 'ok')
+        break
+      }
+
+      case '/help': {
+        appendTerminalLine('Available commands:', 'ok')
+        appendTerminalLine('  /locate <query> [filters]  — search sessions + Memory Vault', 'ok')
+        appendTerminalLine('  /reflect [sessionId]       — reflect on a session', 'ok')
+        appendTerminalLine('  /meditate                  — audit brain vault', 'ok')
+        appendTerminalLine('  /ruminate                  — mine session patterns', 'ok')
+        appendTerminalLine('  /plan <task>               — create phased plan', 'ok')
+        appendTerminalLine('  /review <content>          — review content against principles', 'ok')
+        appendTerminalLine('  /brain <list|index|read|write>  — Memory Vault file ops', 'ok')
+        appendTerminalLine('  /syn                       — skill guidance', 'ok')
+        appendTerminalLine('  /help                      — this help', 'ok')
+        break
+      }
+
+      default: {
+        appendTerminalLine(`Unknown command: ${cmd}. Type /help for available commands.`, 'error')
+      }
+    }
+  }
+
+  function appendTerminalLine(text, type = 'normal') {
+    const div = document.createElement('div')
+    div.className = `terminal-line terminal-${type}`
+    div.textContent = text
+    terminalOutput.appendChild(div)
+  }
+
+  function renderSearchResults(results) {
+    if (!results || results.length === 0) {
+      appendTerminalLine('No results found.', 'warn')
+      return
+    }
+    appendTerminalLine(`Found ${results.length} result${results.length !== 1 ? 's' : ''}:`, 'ok')
+    results.forEach((r) => {
+      const div = document.createElement('div')
+      div.className = 'terminal-result'
+      div.textContent = `${r.title} [${r.harness}]`
+      div.style.cursor = 'pointer'
+      div.style.color = '#00ccff'
+      div.style.marginLeft = '20px'
+      div.addEventListener('click', () => {
+        selectedSessionId = r.id
+        renderSessionList(allSessions)
+        loadSessionContent(r)
+        // Scroll terminal out of the way / focus session
+        terminalOutput.style.display = 'none'
+      })
+      terminalOutput.appendChild(div)
+    })
+  }
+
+  // ── Search input (kept for backward compat, now delegates to terminal) ──
+  // The old searchInput is removed; use /locate in the terminal instead.
 
   // Close session
   btnCloseSession.addEventListener('click', (e) => {
@@ -480,26 +693,7 @@ const setup = () => {
     sessionContent.innerHTML = parts.join('')
   }
 
-  async function performSearch(query) {
-    if (searchDebounce) clearTimeout(searchDebounce)
-    searchDebounce = null
-
-    const q = query.trim()
-    if (!q) {
-      renderSessionList(allSessions)
-      return
-    }
-
-    isSearching = true
-    try {
-      const results = await synAPI.searchSessions(q, { batchSize })
-      renderSessionList(results)
-    } catch (e) {
-      console.error('Search failed:', e)
-    } finally {
-      isSearching = false
-    }
-  }
+  // ── performSearch removed — replaced by terminal /locate command ──
 
   async function scanAndAutodetectHarnesses() {
     try {

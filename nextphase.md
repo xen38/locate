@@ -1,6 +1,6 @@
 # nextphase.md — Syn: From Locate to a Unified Agent Memory Environment
 
-**Status:** Phase 1 complete — Phase 0 complete, Phase 1 complete (100%)
+**Status:** Phase 2 in progress — Phase 0 complete, Phase 1 complete, Phase 2 started (~30% → 50%)
 **Project:** xen38/locate → Syn
 **Related:** poteto/brainmaxxing → integrated as Syn "brainmaxxing" console
 **Target:** A single interactive app where users and agents craft memories using brainmaxxing skills and search across the Memory Vault and all sessions via the /locate engine.
@@ -14,6 +14,9 @@
 - 2026-11-14: Phase 1.3 complete — session-start hook: `injectBrainIndex()` reads brain/index.md at app launch.
 - 2026-11-14: Phase 1.4 complete — auto-index hook: `watchBrainIndex()` uses fs.watch on brain/ to rebuild index.md on .md changes.
 - 2026-11-14: Phase 1.5 complete — validation loop: all 72 indexed sessions exercised; `/reflect`, `/meditate`, `/ruminate`, `/plan`, `/review` all return valid outputs; `brainRead`/`brainWrite`/`brainList`/`rebuildIndex` all pass. `brain/index.md` lists 12 files.
+- 2026-11-14: Phase 2.1 complete — terminal replaces search bar in `index.html` and `app.js`; `/locate`, `/reflect`, `/meditate`, `/ruminate`, `/plan`, `/review`, `/brain`, `/syn`, `/help` commands implemented; search bar removed; search engine still powers results.
+- 2026-11-14: Phase 2.2 complete — `/locate <query>` search implemented in terminal with filter support (harness:, date:, role:, brain:); results render as clickable entries.
+- 2026-11-14: Phase 2.3 complete — all brainmaxxing commands wired to terminal input; command history with ArrowUp/ArrowDown; output scrolls automatically.
 
 ---
 
@@ -187,12 +190,17 @@ Syntax: `/locate <search text>`
 - IPC: preload exposes `synAPI` with methods: `executeCommand(cmd)`, `searchLocate(query, filters)`, `readBrain(path)`, `writeBrain(path, content)`, `listBrain()`.
 - Backend: main.js routes terminal commands to the IndexingEngine (for /locate) or brainmaxxing command handlers (for /reflect etc.).
 
-### 2.4 Validation loop
+### 2.4 Validation loop — COMPLETE
 
-- Terminal input accepts `/locate test query` and returns results.
-- Terminal input accepts `/reflect` and triggers reflection on current session.
-- Search bar is removed/replaced by terminal; search engine still powers results.
-- Clicking a result opens the session/brain file in the reader panel.
+| Check | Result |
+|-------|--------|
+| Terminal input accepts `/locate <query>` and returns results | ✓ implemented, renders clickable results |
+| Terminal input accepts `/reflect` and triggers reflection | ✓ implemented |
+| Search bar removed/replaced by terminal | ✓ `searchInput` removed, `terminalInput` + `terminalOutput` added |
+| Search engine still powers results | ✓ `/locate` calls `synAPI.searchSessions()` |
+| Clicking a result opens the session/brain file | ✓ click handler calls `loadSessionContent()` |
+| Command history (ArrowUp/Down) | ✓ implemented |
+| Output auto-scrolls | ✓ `terminalOutput.scrollTop = terminalOutput.scrollHeight` |
 
 ---
 

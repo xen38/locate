@@ -40,7 +40,31 @@ a { color: #ffffff; }
   gap: 8px;
 }
 
-#searchInput {
+
+
+/* Terminal (replaces search bar) */
+.terminal-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 280px;
+  max-width: 600px;
+}
+
+.terminal-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prompt {
+  color: #00ccff;
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+
+#terminalInput {
   flex: 1;
   min-width: 200px;
   height: 32px;
@@ -50,15 +74,46 @@ a { color: #ffffff; }
   border-radius: 6px;
   color: #ffffff;
   font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   outline: none;
 }
 
-#searchInput::placeholder {
+#terminalInput::placeholder {
   color: #666666;
 }
 
-#searchInput:focus {
+#terminalInput:focus {
   border-color: #007aff;
+}
+
+#terminalOutput {
+  display: none;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px 0;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.terminal-line {
+  padding: 2px 4px;
+  white-space: pre-wrap;
+}
+
+.terminal-line.cmd { color: #ffffff; }
+.terminal-line.ok { color: #00ff00; }
+.terminal-line.warn { color: #ffff00; }
+.terminal-line.error { color: #ff4444; }
+
+.terminal-result {
+  padding: 4px 8px;
+  margin: 2px 0;
+  border-radius: 4px;
+  background: #111111;
+}
+
+.terminal-result:hover {
+  background: #1a1a1a;
 }
 
 .menu-btn {
