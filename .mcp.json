@@ -1,10 +1,10 @@
 {
   "servers": {
-    "locate": {
+    "syn": {
       "command": "node",
-      "args": ["K:\\Repos\\locate\\mcp-server.js"],
+      "args": ["K:\\Repos\\Syn\\mcp-server.js"],
       "transport": "stdio",
-      "description": "Locate app MCP server - search archived coding sessions across all harnesses"
+      "description": "Syn app MCP server - search archived coding sessions across all harnesses"
     }
   }
 }

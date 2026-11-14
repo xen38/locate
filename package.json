@@ -1,7 +1,7 @@
 {
-  "name": "locate",
+  "name": "syn",
   "version": "1.0.0",
-  "description": "An interface for your archive of sessions across all harnesses - searchable by users and agents via /locate",
+  "description": "Syn — a unified agent memory environment: search sessions + Memory Vault via the /locate engine and brainmaxxing console",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -24,14 +24,20 @@
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "appId": "com.xen38.locate",
-    "productName": "locate",
+    "appId": "com.xen38.syn",
+    "productName": "Syn",
     "directories": {
       "output": "release"
     },
     "win": {
       "target": "nsis",
       "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "icon": "assets/icon.icns"
+    },
+    "linux": {
+      "icon": "assets/icon.png"
     }
   },
   "dependencies": {

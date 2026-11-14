@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('locateAPI', {
+const synAPI = {
   // Config
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (updates) => ipcRenderer.invoke('config:set', updates),
@@ -28,4 +28,19 @@ contextBridge.exposeInMainWorld('locateAPI', {
   searchSessions: (query, options) => ipcRenderer.invoke('session:search', query, options),
   getContext: (sessionId, messageIndex, before, after) =>
     ipcRenderer.invoke('session:getContext', sessionId, messageIndex, before, after),
-})
+
+  // Brainmaxxing (Memory Vault)
+  brainIndex: () => ipcRenderer.invoke('brain:index'),
+  brainRead: (relativePath) => ipcRenderer.invoke('brain:read', relativePath),
+  brainWrite: (relativePath, content) => ipcRenderer.invoke('brain:write', relativePath, content),
+  brainList: () => ipcRenderer.invoke('brain:list'),
+  brainReflect: (sessionId) => ipcRenderer.invoke('brain:reflect', sessionId),
+  brainMeditate: (sessionId) => ipcRenderer.invoke('brain:meditate', sessionId),
+  brainRuminate: (sessionId) => ipcRenderer.invoke('brain:ruminate', sessionId),
+  brainPlan: (sessionId) => ipcRenderer.invoke('brain:plan', sessionId),
+  brainReview: (sessionId) => ipcRenderer.invoke('brain:review', sessionId),
+}
+
+// Expose as synAPI, with locateAPI alias for backward compatibility.
+contextBridge.exposeInMainWorld('synAPI', synAPI)
+contextBridge.exposeInMainWorld('locateAPI', synAPI)
