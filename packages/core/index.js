@@ -632,9 +632,12 @@ class IndexingEngine {
           // Must have a valid title
           if (!s.title || s.title.trim().length === 0) return false
 
-          // Reject sessions with no messages at all (empty threads, not real
-          // conversations to display in the app)
-          if (!s.messages || s.messages.length === 0) return false
+          // Sessions with no messages (e.g. Codex DB sessions where content is
+          // remote) are still valid sessions — allow them through if they have
+          // valid metadata. Sessions with messages still need real content.
+          if (!s.messages || s.messages.length === 0) {
+            return true
+          }
 
           const hasContent = s.messages.some(m => {
             const c = typeof m.content === 'string' ? m.content : (m.content != null ? String(m.content) : '')
@@ -758,23 +761,6 @@ class IndexingEngine {
       }
       // Yield between sources to keep UI responsive
       await sleep()
-    }
-
-    // Clean up sessions that have no messages (e.g. empty Codex/ChatGPT threads
-    // indexed before the empty-session filter was added). These are not real
-    // conversations and should not appear in the app.
-    try {
-      const emptySessions = this.db
-        .prepare('SELECT s.session_id FROM sessions s LEFT JOIN messages m ON m.session_id = s.session_id WHERE m.session_id IS NULL')
-        .all()
-      for (const s of emptySessions) {
-        this.db.prepare('DELETE FROM sessions WHERE session_id = ?').run(s.session_id)
-      }
-      if (emptySessions.length > 0) {
-        console.log(`[ENGINE] Cleaned up ${emptySessions.length} session(s) with no messages`)
-      }
-    } catch (e) {
-      console.error('[ENGINE] Failed to clean up empty sessions:', e.message)
     }
 
     return results

@@ -89,9 +89,12 @@ function makeCodexValidator() {
       return /^codex(\.dev)?\.db$/i.test(base)
     }
     // Codex archived sessions: .jsonl files under .codex/archived_sessions/
-    // contain real local session transcripts with message content.
+    // or .codex/sessions/<year>/<month>/<day>/ contain real local session transcripts.
     if (ext === '.jsonl') {
-      return parts.includes('archived_sessions') && parts.some(p => p === '.codex' || p === 'codex')
+      const isCodexDir = parts.some(p => p === '.codex' || p === 'codex')
+      if (isCodexDir && (parts.includes('archived_sessions') || parts.includes('sessions'))) {
+        return true
+      }
     }
     return false
   }

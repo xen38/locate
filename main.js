@@ -2,13 +2,14 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { IndexingEngine } = require('./packages/core/index')
+const brainmaxxing = require('./packages/core/brainmaxxing')
 
 // Configuration file path (user data dir)
-const CONFIG_FILE = path.join(app.getPath('userData'), 'config.json')
+const CONFIG_FILE = path.join(app.getPath('userData'), 'syn', 'config.json')
 
 // Shared index database path — same location used by the MCP server so both
 // components share a single index.
-const INDEX_DB_PATH = path.join(app.getPath('userData'), 'locate-index.db')
+const INDEX_DB_PATH = path.join(app.getPath('userData'), 'syn', 'syn-index.db')
 
 // Default configuration
 const DEFAULT_CONFIG = {
@@ -95,7 +96,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false
     },
-    title: 'locate',
+    title: 'Syn',
     backgroundColor: '#000000'
   })
 
@@ -122,6 +123,38 @@ function createWindow() {
   })
 }
 
+// ── Session-start hook: inject brain/index.md ────────────────────────────
+let brainIndexMd = ''
+
+function injectBrainIndex() {
+  try {
+    brainIndexMd = brainmaxxing.readIndexMd()
+    console.log('[syn] Brain index injected at session start')
+  } catch (e) {
+    console.error('[syn] Failed to read brain index:', e.message)
+  }
+}
+
+// ── Auto-index hook: rebuild brain/index.md when brain/ files change ─────
+function watchBrainIndex() {
+  const brainDir = brainmaxxing.BRAIN_DIR
+  if (!fs.existsSync(brainDir)) return
+  try {
+    fs.watch(brainDir, { recursive: true }, (eventType, filename) => {
+      if (!filename || !filename.endsWith('.md')) return
+      try {
+        brainmaxxing.rebuildIndex()
+        brainIndexMd = brainmaxxing.readIndexMd()
+        console.log(`[syn] Auto-indexed brain/ (${eventType}): ${filename}`)
+      } catch (e) {
+        console.error('[syn] Auto-index failed:', e.message)
+      }
+    })
+  } catch (e) {
+    console.error('[syn] Failed to watch brain/:', e.message)
+  }
+}
+
 app.whenReady().then(async () => {
   try {
     await engine.open()
@@ -129,6 +162,8 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.error('Failed to open index engine:', e)
   }
+  injectBrainIndex()
+  watchBrainIndex()
   createWindow()
 
   app.on('activate', () => {
@@ -470,5 +505,78 @@ ipcMain.handle('session:deleteFile', async (event, sessionId) => {
     return { success: true, deletedPath: filePath }
   } catch (e) {
     throw new Error(`Failed to delete session file: ${e.message}`)
+  }
+})
+
+// ── Brainmaxxing IPC handlers ───────────────────────────────────────────
+ipcMain.handle('brain:index', async (event) => {
+  try {
+    return brainmaxxing.rebuildIndex()
+  } catch (e) {
+    throw new Error(`Brain index failed: ${e.message}`)
+  }
+})
+
+ipcMain.handle('brain:read', async (event, relativePath) => {
+  try {
+    return brainmaxxing.brainRead(relativePath)
+  } catch (e) {
+    throw new Error(`Brain read failed: ${e.message}`)
+  }
+})
+
+ipcMain.handle('brain:write', async (event, relativePath, content) => {
+  try {
+    return brainmaxxing.brainWrite(relativePath, content)
+  } catch (e) {
+    throw new Error(`Brain write failed: ${e.message}`)
+  }
+})
+
+ipcMain.handle('brain:list', async (event) => {
+  try {
+    return brainmaxxing.brainList()
+  } catch (e) {
+    throw new Error(`Brain list failed: ${e.message}`)
+  }
+})
+
+ipcMain.handle('brain:reflect', async (event, sessionId) => {
+  try {
+    return brainmaxxing.reflect(sessionId, engine)
+  } catch (e) {
+    throw new Error(`Reflect failed: ${e.message}`)
+  }
+})
+
+ipcMain.handle('brain:meditate', async (event) => {
+  try {
+    return brainmaxxing.meditate(engine)
+  } catch (e) {
+    throw new Error(`Meditate failed: ${e.message}`)
+  }
+})
+
+ipcMain.handle('brain:ruminate', async (event) => {
+  try {
+    return brainmaxxing.ruminate(engine)
+  } catch (e) {
+    throw new Error(`Ruminate failed: ${e.message}`)
+  }
+})
+
+ipcMain.handle('brain:plan', async (event, task) => {
+  try {
+    return brainmaxxing.plan(task, engine)
+  } catch (e) {
+    throw new Error(`Plan failed: ${e.message}`)
+  }
+})
+
+ipcMain.handle('brain:review', async (event, content) => {
+  try {
+    return brainmaxxing.review(content, engine)
+  } catch (e) {
+    throw new Error(`Review failed: ${e.message}`)
   }
 })

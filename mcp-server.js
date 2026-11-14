@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Locate MCP Server
+ * Syn MCP server
  *
  * Exposes the Locate search engine as MCP tools so AI assistants can search
  * archived sessions without reading interface or wasting tokens.
@@ -20,15 +20,16 @@ const { IndexingEngine } = require('./packages/core/index')
 
 const CONFIG_FILE = path.join(
   process.env.APPDATA || process.env.HOME || os.homedir(),
-  'locate-mcp-config.json'
+  'syn',
+  'syn-mcp-config.json'
 )
 
 // Shared index database path — same location used by the desktop app so both
 // components share a single index.
 const INDEX_DB_PATH = path.join(
   process.env.APPDATA || process.env.HOME || os.homedir(),
-  'locate',
-  'locate-index.db'
+  'syn',
+  'syn-index.db'
 )
 
 const DEFAULT_CONFIG = {
@@ -44,7 +45,7 @@ function loadConfig() {
       config = { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) }
     }
   } catch (e) {
-    console.error('[locate-mcp] Failed to load config:', e.message)
+    console.error('[syn-mcp] Failed to load config:', e.message)
   }
 }
 
@@ -54,7 +55,7 @@ function saveConfig() {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8')
   } catch (e) {
-    console.error('[locate-mcp] Failed to save config:', e.message)
+    console.error('[syn-mcp] Failed to save config:', e.message)
   }
 }
 
@@ -63,7 +64,7 @@ loadConfig()
 // ── Core Indexing Engine ───────────────────────────────────────────────────
 
 const engine = new IndexingEngine(INDEX_DB_PATH)
-engine.open().catch(e => console.error('[locate-mcp] Failed to open index:', e))
+engine.open().catch(e => console.error('[syn-mcp] Failed to open index:', e))
 
 // ── MCP Server ─────────────────────────────────────────────────────────────
 
@@ -75,7 +76,7 @@ const {
 } = require('@modelcontextprotocol/sdk/types.js')
 
 const server = new Server(
-  { name: 'locate', version: '1.0.0' },
+  { name: 'syn', version: '2.0.0' },
   { capabilities: { tools: {} } }
 )
 
@@ -542,10 +543,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport()
   await server.connect(transport)
-  console.error('[locate-mcp] Locate MCP server running on stdio')
+  console.error('[syn-mcp] Syn MCP server running on stdio')
 }
 
 main().catch((err) => {
-  console.error('[locate-mcp] Fatal error:', err)
+  console.error('[syn-mcp] Fatal error:', err)
   process.exit(1)
 })

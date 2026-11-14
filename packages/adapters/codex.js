@@ -67,8 +67,12 @@ class CodexAdapter extends BaseAdapter {
       return true
     }
     // Codex archived sessions: .jsonl files under .codex/archived_sessions/
-    if (ext === '.jsonl' && parts.includes('archived_sessions') && parts.some(p => p === '.codex' || p === 'codex')) {
-      return true
+    // or .codex/sessions/<year>/<month>/<day>/ contain real local session transcripts.
+    if (ext === '.jsonl') {
+      const isCodexDir = parts.some(p => p === '.codex' || p === 'codex')
+      if (isCodexDir && (parts.includes('archived_sessions') || parts.includes('sessions'))) {
+        return true
+      }
     }
     return false
   }
@@ -91,6 +95,25 @@ class CodexAdapter extends BaseAdapter {
             results.push({ filePath: path.join(archivedDir, entry.name), ext: '.jsonl' })
           }
         }
+      } catch (e) { /* skip inaccessible */ }
+    }
+    // Also discover session JSONL files under .codex/sessions/<year>/<month>/<day>/
+    const codexRoot = path.dirname(findCodexDbs()[0] || '')
+    const sessionsRoot = path.join(codexRoot, 'sessions')
+    if (sessionsRoot && fs.existsSync(sessionsRoot)) {
+      try {
+        const walk = (dir) => {
+          const entries = fs.readdirSync(dir, { withFileTypes: true })
+          for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name)
+            if (entry.isDirectory()) {
+              walk(fullPath)
+            } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.jsonl')) {
+              results.push({ filePath: fullPath, ext: '.jsonl' })
+            }
+          }
+        }
+        walk(sessionsRoot)
       } catch (e) { /* skip inaccessible */ }
     }
     return results
@@ -169,7 +192,7 @@ class CodexAdapter extends BaseAdapter {
 
         // Skip sessions with no local message content (ChatGPT-imported threads
         // live entirely on remote servers — nothing to index locally)
-        if (!sourceKind || sourceKind === 'chatgpt') continue
+        if (sourceKind === 'chatgpt') continue
 
         sessions.push({
           sessionId,

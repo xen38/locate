@@ -9,7 +9,7 @@ window.onunhandledrejection = (event) => {
 }
 
 const setup = () => {
-  const locateAPI = window.locateAPI
+  const synAPI = window.synAPI
 
   // DOM elements
   const searchInput = document.getElementById('searchInput')
@@ -26,6 +26,12 @@ const setup = () => {
   const harnessSettingsEl = document.getElementById('harnessSettings')
   const btnScanHarnesses = document.getElementById('btnScanHarnesses')
   const btnAddFolder = document.getElementById('btnAddFolder')
+  const btnBrainReflect = document.getElementById('btnBrainReflect')
+  const btnBrainMeditate = document.getElementById('btnBrainMeditate')
+  const btnBrainRuminate = document.getElementById('btnBrainRuminate')
+  const btnBrainPlan = document.getElementById('btnBrainPlan')
+  const btnBrainReview = document.getElementById('btnBrainReview')
+  const btnBrainIndex = document.getElementById('btnBrainIndex')
   const settingBatchSize = document.getElementById('settingBatchSize')
 
   // Context menu elements
@@ -94,17 +100,113 @@ const setup = () => {
 
   // Add folder
   btnAddFolder.addEventListener('click', async () => {
-    const dir = await locateAPI.openFolderDialog()
+    const dir = await synAPI.openFolderDialog()
     if (dir) {
-      await locateAPI.addHarness(dir)
+      await synAPI.addHarness(dir)
       renderHarnesses()
       try {
-        await locateAPI.indexAllSources()
+        await synAPI.indexAllSources()
       } catch (e) {
         console.error('Indexing failed:', e)
       }
       await loadSessions()
     }
+  })
+
+  // ── Brainmaxxing commands ─────────────────────────────────────────────
+  async function showBrainResult(title, result) {
+    const ok = result && result.ok !== false
+    const lines = [
+      `<div style="padding:12px;background:#1a1a1a;border:1px solid #333;border-radius:8px;margin-top:12px;">`,
+      `<div style="font-weight:600;color:#00ccff;margin-bottom:8px">${escapeHtml(title)}</div>`,
+      `<div style="color:#e0e0e0;font-size:13px;white-space:pre-wrap">${escapeHtml(JSON.stringify(result, null, 2))}</div>`,
+      `</div>`
+    ]
+    sessionContent.insertAdjacentHTML('beforeend', lines.join(''))
+    sessionView.classList.remove('hidden')
+    sessionView.style.display = 'flex'
+    emptyState.classList.add('hidden')
+    emptyState.style.display = 'none'
+  }
+
+  btnBrainReflect.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    if (!selectedSessionId) {
+      alert('Select a session first.')
+      return
+    }
+    try {
+      const result = await synAPI.brainReflect(selectedSessionId)
+      showBrainResult('/reflect', result)
+    } catch (err) {
+      alert('Reflect failed: ' + err.message)
+    }
+    menuOpen = false
+    menuPanel.style.display = 'none'
+  })
+
+  btnBrainMeditate.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    try {
+      const result = await synAPI.brainMeditate()
+      showBrainResult('/meditate', result)
+    } catch (err) {
+      alert('Meditate failed: ' + err.message)
+    }
+    menuOpen = false
+    menuPanel.style.display = 'none'
+  })
+
+  btnBrainRuminate.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    try {
+      const result = await synAPI.brainRuminate()
+      showBrainResult('/ruminate', result)
+    } catch (err) {
+      alert('Ruminate failed: ' + err.message)
+    }
+    menuOpen = false
+    menuPanel.style.display = 'none'
+  })
+
+  btnBrainPlan.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    const task = prompt('Enter plan task:')
+    if (!task) return
+    try {
+      const result = await synAPI.brainPlan(task)
+      showBrainResult('/plan', result)
+    } catch (err) {
+      alert('Plan failed: ' + err.message)
+    }
+    menuOpen = false
+    menuPanel.style.display = 'none'
+  })
+
+  btnBrainReview.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    const content = prompt('Enter content to review:')
+    if (content === null) return
+    try {
+      const result = await synAPI.brainReview(content)
+      showBrainResult('/review', result)
+    } catch (err) {
+      alert('Review failed: ' + err.message)
+    }
+    menuOpen = false
+    menuPanel.style.display = 'none'
+  })
+
+  btnBrainIndex.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    try {
+      const result = await synAPI.brainIndex()
+      showBrainResult('/index', result)
+    } catch (err) {
+      alert('Index failed: ' + err.message)
+    }
+    menuOpen = false
+    menuPanel.style.display = 'none'
   })
 
   // Scan & autodetect harnesses
@@ -122,7 +224,7 @@ const setup = () => {
   // Batch size setting
   settingBatchSize.addEventListener('change', async (e) => {
     batchSize = parseInt(e.target.value, 10)
-    await locateAPI.setConfig({ batchSize })
+    await synAPI.setConfig({ batchSize })
   })
 
   // Search input
@@ -146,7 +248,7 @@ const setup = () => {
     ctxMenu.style.display = 'none'
     if (!ctxTargetSessionId) return
     try {
-      await locateAPI.deleteSession(ctxTargetSessionId)
+      await synAPI.deleteSession(ctxTargetSessionId)
       // Remove from local list
       allSessions = allSessions.filter(s => s.id !== ctxTargetSessionId)
       if (selectedSessionId === ctxTargetSessionId) {
@@ -172,7 +274,7 @@ const setup = () => {
       async () => {
         hideConfirm()
         try {
-          await locateAPI.deleteSessionFile(ctxTargetSessionId)
+          await synAPI.deleteSessionFile(ctxTargetSessionId)
           allSessions = allSessions.filter(s => s.id !== ctxTargetSessionId)
           if (selectedSessionId === ctxTargetSessionId) {
             closeSession()
@@ -198,7 +300,7 @@ const setup = () => {
     hideConfirm()
     if (!ctxTargetSessionId) return
     try {
-      await locateAPI.deleteSessionFile(ctxTargetSessionId)
+      await synAPI.deleteSessionFile(ctxTargetSessionId)
       allSessions = allSessions.filter(s => s.id !== ctxTargetSessionId)
       if (selectedSessionId === ctxTargetSessionId) {
         closeSession()
@@ -235,13 +337,13 @@ const setup = () => {
 
   async function init() {
     try {
-      const config = await locateAPI.getConfig()
+      const config = await synAPI.getConfig()
       batchSize = config.batchSize || 10
       settingBatchSize.value = String(batchSize)
 
       // Load harness enable/disable settings
       try {
-        const settings = await locateAPI.getHarnessSettings()
+        const settings = await synAPI.getHarnessSettings()
         harnessSettings = Object.fromEntries(settings.map(s => [s.name, s.enabled]))
         renderHarnessSettings()
       } catch (e) {
@@ -255,7 +357,7 @@ const setup = () => {
         // Ensure all configured sources are registered in the engine (idempotent)
         for (const dir of config.harnessDirectories) {
           try {
-            await locateAPI.addHarness(dir)
+            await synAPI.addHarness(dir)
           } catch (e) {
             console.error('Failed to add harness:', dir, e.message)
           }
@@ -263,7 +365,7 @@ const setup = () => {
 
         // Index all sources so sessions appear in the list
         try {
-          await locateAPI.indexAllSources()
+          await synAPI.indexAllSources()
         } catch (e) {
           console.error('Indexing failed:', e.message)
         }
@@ -278,7 +380,7 @@ const setup = () => {
   }
 
   async function loadSessions() {
-    allSessions = await locateAPI.listAllSessions()
+    allSessions = await synAPI.listAllSessions()
     renderSessionList(allSessions)
   }
 
@@ -345,7 +447,7 @@ const setup = () => {
     metaPath.textContent = session.source_path
 
     try {
-      const data = await locateAPI.readSession(session.id)
+      const data = await synAPI.readSession(session.id)
       const messages = data.messages || []
       renderMessages(messages)
     } catch (e) {
@@ -390,7 +492,7 @@ const setup = () => {
 
     isSearching = true
     try {
-      const results = await locateAPI.searchSessions(q, { batchSize })
+      const results = await synAPI.searchSessions(q, { batchSize })
       renderSessionList(results)
     } catch (e) {
       console.error('Search failed:', e)
@@ -401,13 +503,13 @@ const setup = () => {
 
   async function scanAndAutodetectHarnesses() {
     try {
-      const detected = await locateAPI.autodetectHarnesses()
-      const current = await locateAPI.listHarnesses()
+      const detected = await synAPI.autodetectHarnesses()
+      const current = await synAPI.listHarnesses()
       const currentPaths = new Set(current.map(h => h.path))
       let added = 0
       for (const d of detected) {
         if (!currentPaths.has(d)) {
-          await locateAPI.addHarness(d)
+          await synAPI.addHarness(d)
           added++
         }
       }
@@ -416,7 +518,7 @@ const setup = () => {
 
       // Index all sources so sessions appear in the list
       try {
-        await locateAPI.indexAllSources()
+        await synAPI.indexAllSources()
       } catch (e) {
         console.error('Indexing failed:', e)
       }
@@ -445,7 +547,7 @@ const setup = () => {
   }
 
   async function loadHarnesses() {
-    const harnesses = await locateAPI.listHarnesses()
+    const harnesses = await synAPI.listHarnesses()
     harnessList.innerHTML = ''
 
     if (harnesses.length === 0) {
@@ -477,7 +579,7 @@ const setup = () => {
         try {
           // Remove all directories for this harness
           for (const h of items) {
-            await locateAPI.removeHarness(h.path || h)
+            await synAPI.removeHarness(h.path || h)
           }
           loadHarnesses()
           await loadSessions()
@@ -516,7 +618,7 @@ const setup = () => {
         const on = e.target.checked
         harnessSettings[name] = on
         try {
-          await locateAPI.setHarnessSetting(name, on)
+          await synAPI.setHarnessSetting(name, on)
           await loadSessions()
           renderHarnessSettings()
         } catch (err) {
@@ -547,3 +649,4 @@ const setup = () => {
   } else {
     setup()
   }
+
