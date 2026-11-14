@@ -4,11 +4,17 @@ Root entry point for the Syn Memory Vault. Every brain file is reachable from he
 
 ## Sections
 
-- [[principles/principles]] — engineering principles index
-- [[codebase/codebase]] — project-specific knowledge and gotchas
-- [[memories/]] — agent-crafted memories (/reflect output)
-- [[plans/]] — phased plans (/plan output)
-- [[sessions/]] — archived session summaries (/ruminate output)
+- [[principles]] — principles
+- [[codebase]] — codebase
+- [[principles/meditate-2026-11-14]] — meditate-2026-11-14
+- [[principles/read-only-sessions]] — read-only-sessions
+- [[codebase/indexing-engine]] — indexing-engine
+- [[codebase/mcp-server]] — mcp-server
+- [[codebase/terminal-api]] — terminal-api
+- [[memories/reflect-2026-11-14-set-nvidia-model-context-window]] — reflect-2026-11-14-set-nvidia-model-context-window
+- [[plans/plan-2026-11-14-validate-brainmaxxing-commands]] — plan-2026-11-14-validate-brainmaxxing-commands
+- [[plans/review-2026-11-14-this-code-copies-session-files-and-makes]] — review-2026-11-14-this-code-copies-session-files-and-makes
+- [[sessions/ruminate-2026-11-14]] — ruminate-2026-11-14
 
 ## Rules
 

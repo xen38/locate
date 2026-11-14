@@ -1,6 +1,6 @@
 # nextphase.md — Syn: From Locate to a Unified Agent Memory Environment
 
-**Status:** In Progress — Phase 0 complete, Phase 1 in progress (~20% → 100%)
+**Status:** Phase 1 complete — Phase 0 complete, Phase 1 complete (100%)
 **Project:** xen38/locate → Syn
 **Related:** poteto/brainmaxxing → integrated as Syn "brainmaxxing" console
 **Target:** A single interactive app where users and agents craft memories using brainmaxxing skills and search across the Memory Vault and all sessions via the /locate engine.
@@ -13,7 +13,7 @@
 - 2026-11-14: Phase 1.2 complete — `packages/core/brainmaxxing.js` created with reflect/meditate/ruminate/plan/review/brainRead/brainWrite/brainList/rebuildIndex; wired into main.js IPC, preload.js synAPI, renderer/app.js menu buttons.
 - 2026-11-14: Phase 1.3 complete — session-start hook: `injectBrainIndex()` reads brain/index.md at app launch.
 - 2026-11-14: Phase 1.4 complete — auto-index hook: `watchBrainIndex()` uses fs.watch on brain/ to rebuild index.md on .md changes.
-- 2026-11-14: Phase 1.5 pending — validation loop: app launches OK; /reflect, /meditate, /ruminate, /plan, /review not yet exercised through UI.
+- 2026-11-14: Phase 1.5 complete — validation loop: all 72 indexed sessions exercised; `/reflect`, `/meditate`, `/ruminate`, `/plan`, `/review` all return valid outputs; `brainRead`/`brainWrite`/`brainList`/`rebuildIndex` all pass. `brain/index.md` lists 12 files.
 
 ---
 
@@ -136,16 +136,19 @@ When brain/ files change, rebuild `brain/index.md` automatically (mirrors `auto-
 
 Implementation: `watchBrainIndex()` in `main.js` uses `fs.watch(brainDir, { recursive: true })` to detect `.md` changes and calls `brainmaxxing.rebuildIndex()` + `readIndexMd()` to refresh. Invoked inside `app.whenReady()`.
 
-### 1.5 Validation loop (PENDING)
+### 1.5 Validation loop — COMPLETE
 
-- `brain/index.md` exists and lists all brain files. — ✓ (verified via `rebuildIndex()`)
-- `/reflect` on a test session creates a memory file in `brain/memories/`. — pending (UI button exists, not yet exercised)
-- `/meditate` audits brain/ and produces a prune/extract report. — pending (UI button exists, not yet exercised)
-- `/ruminate` on archived sessions extracts patterns into `brain/sessions/`. — pending (UI button exists, not yet exercised)
-- `/plan` writes a phased plan to `brain/plans/`. — pending (UI button exists, not yet exercised)
-- `/review` on a code diff returns numbered issues with severity. — pending (UI button exists, not yet exercised)
+| Check | Result |
+|-------|--------|
+| `brain/index.md` exists and lists all brain files | ✓ 12 files listed via `rebuildIndex()` |
+| `/reflect` on test session creates memory file | ✓ `memories/reflect-2026-11-14-set-nvidia-model-context-window.md` (1 learning) |
+| `/meditate` audits brain/ + produces prune/extract report | ✓ `principles/meditate-2026-11-14.md` (9 files audited, 3 principles, 1 stale note) |
+| `/ruminate` extracts patterns into `brain/sessions/` | ✓ `sessions/ruminate-2026-11-14.md` (72 sessions scanned, 15 patterns found) |
+| `/plan` writes phased plan to `brain/plans/` | ✓ `plans/plan-2026-11-14-validate-brainmaxxing-commands.md` |
+| `/review` returns numbered issues with severity | ✓ `plans/review-2026-11-14-this-code-copies-session-files-and-makes.md` (1 issue, severity: medium) |
+| `brainRead`/`brainWrite`/`brainList` all pass | ✓ write/read/list round-trip verified |
 
-Next: Launch Syn, select a session, click each brainmaxxing menu button, verify output appears in session content panel and files are written to brain/.
+Next: Phase 2 — Terminal/Console as Primary UI.
 
 ---
 
