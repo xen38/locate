@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-01-18T07:00:00Z",
+  "id": "pi-test-001",
+  "text": "Pi test session content",
+  "role": "user"
+}
+{
+  "timestamp": "2026-01-18T07:00:01Z",
+  "id": "pi-test-002",
+  "text": "Pi assistant response",
+  "role": "assistant"
+}

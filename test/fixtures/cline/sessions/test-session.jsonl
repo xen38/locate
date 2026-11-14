@@ -1,0 +1,3 @@
+{"role":"user","content":"Hello Cline","timestamp":"2026-01-16T09:00:00Z"}
+{"role":"assistant","content":"Hello! How can I help you today?","timestamp":"2026-01-16T09:00:01Z"}
+{"role":"user","content":"Create a MCP server config","timestamp":"2026-01-16T09:00:02Z"}

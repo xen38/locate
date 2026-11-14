@@ -7,7 +7,7 @@
     "start": "electron .",
     "dev": "electron .",
     "build": "electron-builder",
-    "test": "node test/search.test.js"
+    "test": "node test/search.test.js && node test/validator-precision.test.js && node test/fixture-tests.js && node test/indexing.test.js && node test/real-world-integration.test.js"
   },
   "keywords": [
     "sessions",

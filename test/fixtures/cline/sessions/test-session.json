@@ -1,0 +1,20 @@
+{
+  "session_id": "cline-test-001",
+  "title": "Cline Test Session",
+  "prompt": "How do I configure Cline for MCP servers?",
+  "summary": "A session about configuring Cline with MCP server connections.",
+  "messages": [
+    {
+      "role": "user",
+      "content": "How do I configure Cline for MCP servers?",
+      "timestamp": "2026-01-15T10:00:00Z"
+    },
+    {
+      "role": "assistant",
+      "content": "To configure Cline for MCP servers, edit your .cline/mcp_settings.json file.",
+      "timestamp": "2026-01-15T10:00:05Z",
+      "tool_calls": null
+    }
+  ],
+  "timestamp": "2026-01-15T10:00:00Z"
+}
