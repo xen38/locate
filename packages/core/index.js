@@ -623,15 +623,6 @@ class IndexingEngine {
           console.log(`[ENGINE] indexSource: skipping oversized file ${filePath} (${(fp.size / 1024 / 1024).toFixed(1)} MB)`)
           continue
         }
-        const existing = this.db
-          .prepare('SELECT file_hash, file_mtime, file_size FROM sessions WHERE file_path = ?')
-          .get(filePath)
-
-        if (existing && existing.file_hash === fp.hash && existing.file_mtime === fp.mtime && existing.file_size === fp.size) {
-          skipped++
-          continue
-        }
-
         const sessions = await this._getFileSessions(filePath)
         // Filter out sessions that have no real content (not actual conversations)
         const validSessions = sessions.filter(s => {
